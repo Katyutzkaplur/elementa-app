@@ -1,11 +1,9 @@
 # Elementa — requirements.txt
 # Use opencv-python-headless on Streamlit Cloud (no display server needed)
-opencv-python-headless>=4.8
-numpy>=1.24
-pandas>=2.0
-scipy>=1.11
-plotly>=5.18
-Pillow>=10.0
-reportlab>=4.0
-kaleido>=0.2.1        # required by plotly for PNG export inside PDF
-streamlit>=1.35
+streamlit==1.33.0
+numpy==1.26.4
+pandas==2.2.2
+opencv-python-headless==4.9.0.80
+scipy==1.13.0
+plotly==5.21.0
+pillow==10.3.0
