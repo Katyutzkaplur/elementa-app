@@ -1,9 +1,0 @@
-# Elementa — requirements.txt
-# Use opencv-python-headless on Streamlit Cloud (no display server needed)
-streamlit==1.33.0
-numpy==1.26.4
-pandas==2.2.2
-opencv-python-headless==4.9.0.80
-scipy==1.13.0
-plotly==5.21.0
-pillow==10.3.0
