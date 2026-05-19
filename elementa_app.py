@@ -832,8 +832,8 @@ def generate_pdf_report(analyte: str, method: str,
     BLUE_L  = HexColor("#93c5fd")
     TEXT_L  = HexColor("#e2e8f0")
     TEXT_M  = HexColor("#94a3b8")
-    RED_D   = HexColor("#450a0a")    # fondo alertas — rojo oscuro
-    RED_L   = HexColor("#fca5a5")    # texto alertas — rojo claro legible
+    RED_D   = HexColor("#052e16")    # fondo alertas — azul oscuro
+    RED_L   = HexColor("#6ee7b7")    # texto alertas — rojo claro legible
 
     styles = getSampleStyleSheet()
     title_sty = ParagraphStyle("T", parent=styles["Title"],
