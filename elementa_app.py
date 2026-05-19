@@ -1,9 +1,9 @@
 """
 Elementa — Sistema Analítico Colorimétrico Digital
-Derechos reservados (Katyutzka, 2026)
+Derechos reservados (Katyutzka Villarreal, 2026)
 
 Herramienta educativa y analítica para estimación colorimétrica por imágenes RGB.
-NO sustituye métodos instrumentales certificados ni análisis en laboratorios acreditados.
+No sustituye métodos instrumentales certificados ni análisis en laboratorios acreditados.
 """
 
 import streamlit as st
@@ -461,7 +461,7 @@ def plot_plate_grid(assignment_df: pd.DataFrame, triplicate_groups: dict) -> go.
     Marca triplicados con un indicador textual.
     """
     row_labels = list("ABCDEFGH")
-    tipo_to_row = {r["ROI"]: r.get("Tipo", "Sin asignar") for _, r in assignment_df.iterrows()}
+    tipo_to_roi = {r["ROI"]: r.get("Tipo", "Sin asignar") for _, r in assignment_df.iterrows()}
     conc_to_roi = {r["ROI"]: r.get("Concentracion", np.nan) for _, r in assignment_df.iterrows()}
     nombre_to_roi = {r["ROI"]: r.get("Nombre", "") for _, r in assignment_df.iterrows()}
 
