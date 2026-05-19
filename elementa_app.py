@@ -96,9 +96,9 @@ st.markdown(f"""
   .badge-none  {{ background: #1e293b; color: {TEXT_MUT}; padding: 3px 10px; border-radius: 4px; font-size: 0.78rem; font-weight: 600; border: 1px solid {BORDER}; }}
 
   .warn-box {{
-      background: #1c1410; border-left: 3px solid {AMBER};
+      background: #1c0a0a; border-left: 3px solid #dc2626;
       border-radius: 4px; padding: 11px 15px; font-size: 0.83rem;
-      color: #d6b98a; margin: 10px 0; line-height: 1.5;
+      color: #fca5a5; margin: 10px 0; line-height: 1.5;
   }}
   .info-box {{
       background: #0c1525; border-left: 3px solid {BLUE_ACC};
@@ -709,9 +709,87 @@ def plot_residuals(concs, cal_result, channel) -> go.Figure:
 # ════════════════════════════════════════════════════════════════
 
 def fig_to_png_bytes(fig: go.Figure, width=560, height=300) -> bytes | None:
-    """Intenta exportar figura Plotly a PNG via kaleido."""
+    """Exporta figura Plotly a PNG. Intenta kaleido primero, luego matplotlib."""
     try:
         return fig.to_image(format="png", width=width, height=height, scale=1.5)
+    except Exception:
+        return None
+
+
+def calibration_fig_to_png_matplotlib(cal_result: dict, concs, signals,
+                                       channel: str, analyte: str, unit: str,
+                                       lod: float, loq: float) -> bytes | None:
+    """
+    Genera la curva de calibración como PNG usando matplotlib (sin kaleido).
+    Paleta completamente oscura, compatible con el PDF de Elementa.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.ticker as ticker
+
+        BG      = "#0f172a"
+        CARD    = "#1e293b"
+        GREEN   = "#4ade80"
+        BLUE    = "#60a5fa"
+        RED     = "#f87171"
+        ORANGE  = "#fb923c"
+        SUBTEXT = "#94a3b8"
+        TEXT    = "#e2e8f0"
+
+        fig, ax = plt.subplots(figsize=(7.5, 3.6))
+        fig.patch.set_facecolor(BG)
+        ax.set_facecolor(BG)
+
+        # Scatter estándares
+        ax.scatter(concs, signals, color=GREEN, s=55, zorder=5,
+                   edgecolors="#1e293b", linewidths=1.2, label="Estándares")
+
+        # Línea de regresión
+        x_min = max(0, min(concs) * 0.9) if min(concs) > 0 else min(concs) - abs(min(concs)) * 0.1
+        x_max = max(concs) * 1.1
+        x_line = np.linspace(x_min, x_max, 300)
+        y_line = cal_result["slope"] * x_line + cal_result["intercept"]
+        ax.plot(x_line, y_line, color=BLUE, linewidth=2.2, label="Regresión lineal")
+
+        # LOD / LOQ
+        if not np.isnan(lod):
+            ax.axvline(lod, color=RED, linestyle=":", linewidth=1.4)
+            ax.text(lod, ax.get_ylim()[0] if ax.get_ylim()[0] != ax.get_ylim()[1] else 0,
+                    f"  LOD={lod:.3f}", color=RED, fontsize=7, va="bottom")
+        if not np.isnan(loq):
+            ax.axvline(loq, color=ORANGE, linestyle=":", linewidth=1.4)
+            ax.text(loq, ax.get_ylim()[0] if ax.get_ylim()[0] != ax.get_ylim()[1] else 0,
+                    f"  LOQ={loq:.3f}", color=ORANGE, fontsize=7, va="bottom")
+
+        # Ecuación y R²
+        m, b, r2 = cal_result["slope"], cal_result["intercept"], cal_result["r2"]
+        sign = "+" if b >= 0 else "-"
+        eq_txt = f"y = {m:.4f}x {sign} {abs(b):.4f}   |   R² = {r2:.5f}"
+        ax.text(0.03, 0.97, eq_txt, transform=ax.transAxes,
+                fontsize=8.5, color=GREEN, va="top", ha="left",
+                bbox=dict(facecolor=CARD, edgecolor="#166534", boxstyle="round,pad=0.35"))
+
+        # Etiquetas y estilos
+        ax.set_xlabel(f"Concentración ({unit})", color=SUBTEXT, fontsize=9)
+        ax.set_ylabel("Absorbancia digital", color=SUBTEXT, fontsize=9)
+        ax.set_title(f"Curva de calibración — {analyte}  |  Canal: {channel}",
+                     color=TEXT, fontsize=10, pad=8)
+        ax.tick_params(colors=SUBTEXT, labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_edgecolor("#334155")
+        ax.legend(facecolor=CARD, edgecolor="#334155",
+                  labelcolor=TEXT, fontsize=8)
+        ax.grid(True, color="#1e293b", linewidth=0.6, linestyle="--")
+
+        plt.tight_layout(pad=0.8)
+        buf = BytesIO()
+        plt.savefig(buf, format="png", dpi=160, bbox_inches="tight",
+                    facecolor=BG, edgecolor="none")
+        buf.seek(0)
+        plt.close(fig)
+        return buf.read()
     except Exception:
         return None
 
@@ -722,7 +800,12 @@ def generate_pdf_report(analyte: str, method: str,
                          cal_result: dict | None,
                          fig_cal: go.Figure | None,
                          annotated_img: np.ndarray | None,
-                         triplicate_stats_df: pd.DataFrame | None = None) -> bytes:
+                         triplicate_stats_df: pd.DataFrame | None = None,
+                         cal_concs: np.ndarray | None = None,
+                         cal_signals: np.ndarray | None = None,
+                         cal_channel: str = "",
+                         cal_analyte: str = "",
+                         cal_unit: str = "mg/L") -> bytes:
     """Genera reporte PDF con paleta oscura profesional y explicaciones estadísticas."""
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -749,8 +832,8 @@ def generate_pdf_report(analyte: str, method: str,
     BLUE_L  = HexColor("#93c5fd")
     TEXT_L  = HexColor("#e2e8f0")
     TEXT_M  = HexColor("#94a3b8")
-    AMBER_D = HexColor("#78350f")
-    AMBER_L = HexColor("#d6b98a")
+    RED_D   = HexColor("#450a0a")    # fondo alertas — rojo oscuro
+    RED_L   = HexColor("#fca5a5")    # texto alertas — rojo claro legible
 
     styles = getSampleStyleSheet()
     title_sty = ParagraphStyle("T", parent=styles["Title"],
@@ -769,7 +852,7 @@ def generate_pdf_report(analyte: str, method: str,
     italic_sty = ParagraphStyle("I", parent=styles["BodyText"],
         textColor=TEXT_M, fontSize=7.8, leading=12, fontName="Helvetica-Oblique")
     warn_sty = ParagraphStyle("W", parent=styles["BodyText"],
-        textColor=AMBER_L, fontSize=7.8, leading=12, fontName="Helvetica-Oblique")
+        textColor=RED_L, fontSize=7.8, leading=12, fontName="Helvetica-Oblique")
     foot_sty = ParagraphStyle("F", parent=styles["BodyText"],
         textColor=TEXT_M, fontSize=7, leading=10, alignment=1, fontName="Helvetica")
     mono_sty = ParagraphStyle("M", parent=styles["BodyText"],
@@ -812,12 +895,11 @@ def generate_pdf_report(analyte: str, method: str,
     ]]
     warn_tbl = Table(warn_data, colWidths=[7.3*inch])
     warn_tbl.setStyle(TableStyle([
-        ("BACKGROUND",  (0,0), (-1,0), AMBER_D),
+        ("BACKGROUND",  (0,0), (-1,0), RED_D),
         ("LEFTPADDING",  (0,0), (-1,-1), 10),
         ("RIGHTPADDING", (0,0), (-1,-1), 10),
         ("TOPPADDING",   (0,0), (-1,-1), 7),
         ("BOTTOMPADDING",(0,0), (-1,-1), 7),
-        ("ROUNDEDCORNERS", [4]),
     ]))
     story.append(warn_tbl)
     story.append(Spacer(1, 10))
@@ -937,7 +1019,18 @@ def generate_pdf_report(analyte: str, method: str,
         # ── Gráfica de calibración ────────────────────────────
         if fig_cal is not None:
             story.append(Paragraph("Gráfica de calibración", h2_sty))
-            png_bytes = fig_to_png_bytes(fig_cal, width=560, height=310)
+            png_bytes = None
+            # 1. Intentar matplotlib (siempre disponible, sin kaleido)
+            if cal_concs is not None and cal_signals is not None and cal_result is not None:
+                lod_v = cal_result.get("LOD", float("nan"))
+                loq_v = cal_result.get("LOQ", float("nan"))
+                png_bytes = calibration_fig_to_png_matplotlib(
+                    cal_result, cal_concs, cal_signals,
+                    cal_channel, cal_analyte, cal_unit, lod_v, loq_v)
+            # 2. Fallback: kaleido si matplotlib falla
+            if not png_bytes:
+                png_bytes = fig_to_png_bytes(fig_cal, width=560, height=310)
+
             if png_bytes:
                 img_buf2 = BytesIO(png_bytes)
                 rl_cal = RLImage(img_buf2, width=5.5*inch, height=3.0*inch, kind="proportional")
@@ -948,7 +1041,7 @@ def generate_pdf_report(analyte: str, method: str,
                     italic_sty))
             else:
                 story.append(Paragraph(
-                    "(La figura no pudo exportarse; instale 'kaleido' para incluir gráficas en PDF.)",
+                    "(No fue posible generar la imagen de la gráfica en este entorno.)",
                     italic_sty))
             story.append(Spacer(1, 8))
 
@@ -1164,71 +1257,84 @@ if pagina == "Analisis":
             "Use el modo de bloqueo para fijar las ROIs una vez que estén bien posicionadas."
         )
 
-    device_type = st.selectbox(
-        "Tipo de dispositivo",
-        ["Viales lineales", "Microplaca de 96 pocillos", "Personalizado"],
-    )
-    freeze = st.toggle("Bloquear ROIs (una vez posicionadas correctamente)", value=st.session_state["freeze_rois"])
-    st.session_state["freeze_rois"] = freeze
+    # ── Layout lado a lado: controles | imagen ─────────────────
+    roi_ctrl_col, roi_img_col = st.columns([1, 1], gap="large")
 
-    if not freeze:
-        if device_type == "Viales lineales":
-            c1,c2,c3,c4 = st.columns(4)
-            n_rois = c1.number_input("Numero de viales", 2, 24, 6, 1)
-            x0 = c2.slider("X inicial (px)", 0, w_img-1, int(w_img*0.05))
-            y0 = c3.slider("Y inicial (px)", 0, h_img-1, int(h_img*0.25))
-            c5,c6,c7,c8 = st.columns(4)
-            roi_w = c5.slider("Ancho ROI (px)", 5, 200, 40)
-            roi_h = c6.slider("Alto ROI (px)",  5, 300, 60)
-            dx    = c7.slider("Espaciado X (px)", 0, 300, int(w_img*0.08))
-            dy    = c8.slider("Espaciado Y (px)", 0, 200, 0)
-            rois  = generate_rois_linear(x0, y0, roi_w, roi_h, int(n_rois), dx, dy)
+    with roi_ctrl_col:
+        device_type = st.selectbox(
+            "Tipo de dispositivo",
+            ["Viales lineales", "Microplaca de 96 pocillos", "Personalizado"],
+        )
+        freeze = st.toggle("Bloquear ROIs (una vez posicionadas correctamente)",
+                           value=st.session_state["freeze_rois"])
+        st.session_state["freeze_rois"] = freeze
 
-        elif device_type == "Microplaca de 96 pocillos":
-            c1,c2,c3,c4 = st.columns(4)
-            x0    = c1.slider("X inicial (px)", 0, w_img-1, int(w_img*0.05))
-            y0    = c2.slider("Y inicial (px)", 0, h_img-1, int(h_img*0.05))
-            roi_w = c3.slider("Ancho ROI (px)", 4, 80,  20)
-            roi_h = c4.slider("Alto ROI (px)",  4, 80,  20)
-            c5,c6,c7,c8 = st.columns(4)
-            dx    = c5.slider("Espaciado X (px)", 10, 200, 50)
-            dy    = c6.slider("Espaciado Y (px)", 10, 200, 50)
-            rows  = c7.number_input("Filas",   1, 8,  8, 1)
-            cols  = c8.number_input("Columnas",1, 12, 12, 1)
-            rois  = generate_rois_microplate(x0, y0, roi_w, roi_h, dx, dy, int(rows), int(cols))
+        if not freeze:
+            if device_type == "Viales lineales":
+                n_rois = st.number_input("Numero de viales", 2, 24, 6, 1)
+                x0     = st.slider("X inicial (px)",   0, w_img-1, int(w_img*0.05))
+                y0     = st.slider("Y inicial (px)",   0, h_img-1, int(h_img*0.25))
+                roi_w  = st.slider("Ancho ROI (px)",   5, 200, 40)
+                roi_h  = st.slider("Alto ROI (px)",    5, 300, 60)
+                dx     = st.slider("Espaciado X (px)", 0, 300, int(w_img*0.08))
+                dy     = st.slider("Espaciado Y (px)", 0, 200, 0)
+                rois   = generate_rois_linear(x0, y0, roi_w, roi_h, int(n_rois), dx, dy)
+
+            elif device_type == "Microplaca de 96 pocillos":
+                x0    = st.slider("X inicial (px)",    0, w_img-1, int(w_img*0.05))
+                y0    = st.slider("Y inicial (px)",    0, h_img-1, int(h_img*0.05))
+                roi_w = st.slider("Ancho ROI (px)",    4, 80,  20)
+                roi_h = st.slider("Alto ROI (px)",     4, 80,  20)
+                dx    = st.slider("Espaciado X (px)", 10, 200, 50)
+                dy    = st.slider("Espaciado Y (px)", 10, 200, 50)
+                rows  = st.number_input("Filas",    1, 8,  8, 1)
+                cols  = st.number_input("Columnas", 1, 12, 12, 1)
+                rois  = generate_rois_microplate(x0, y0, roi_w, roi_h, dx, dy, int(rows), int(cols))
+            else:
+                n_rois = st.number_input("Numero de ROIs", 2, 50, 6, 1)
+                x0     = st.slider("X inicial (px)",   0, w_img-1, int(w_img*0.05))
+                y0     = st.slider("Y inicial (px)",   0, h_img-1, int(h_img*0.1))
+                roi_w  = st.slider("Ancho ROI (px)",   5, 200, 30)
+                roi_h  = st.slider("Alto ROI (px)",    5, 200, 30)
+                dx     = st.slider("Espaciado X (px)", 0, 300, int(w_img*0.08))
+                dy     = st.slider("Espaciado Y (px)", 0, 300, int(h_img*0.08))
+                rois   = generate_rois_linear(x0, y0, roi_w, roi_h, int(n_rois), dx, dy)
+
+            st.session_state["rois"] = rois
         else:
-            c1,c2,c3,c4 = st.columns(4)
-            n_rois = c1.number_input("Numero de ROIs", 2, 50, 6, 1)
-            x0     = c2.slider("X inicial (px)", 0, w_img-1, int(w_img*0.05))
-            y0     = c3.slider("Y inicial (px)", 0, h_img-1, int(h_img*0.1))
-            c5,c6,c7,c8 = st.columns(4)
-            roi_w  = c5.slider("Ancho ROI (px)", 5, 200, 30)
-            roi_h  = c6.slider("Alto ROI (px)",  5, 200, 30)
-            dx     = c7.slider("Espaciado X (px)", 0, 300, int(w_img*0.08))
-            dy     = c8.slider("Espaciado Y (px)", 0, 300, int(h_img*0.08))
-            rois   = generate_rois_linear(x0, y0, roi_w, roi_h, int(n_rois), dx, dy)
+            rois = st.session_state["rois"]
+            st.markdown(f'<div class="success-box">ROIs bloqueadas — {len(rois)} regiones definidas.</div>',
+                        unsafe_allow_html=True)
 
-        st.session_state["rois"] = rois
-    else:
-        rois = st.session_state["rois"]
-        st.markdown(f'<div class="success-box">ROIs bloqueadas — {len(rois)} regiones definidas.</div>',
-                    unsafe_allow_html=True)
+        if not rois:
+            st.markdown('<div class="warn-box">No hay ROIs definidas. Configure los parámetros de posición y tamaño.</div>',
+                        unsafe_allow_html=True)
+
+    # Imagen en tiempo real con ROIs dibujadas (columna derecha)
+    with roi_img_col:
+        assignments_dict = {}
+        if st.session_state["assignment_df"] is not None:
+            for _, row in st.session_state["assignment_df"].iterrows():
+                assignments_dict[row["ROI"]] = row.get("Tipo", "Sin asignar")
+
+        if rois:
+            ann_img_preview = draw_rois(img, rois, assignments_dict)
+            st.session_state["annotated_img"] = ann_img_preview
+            st.image(ann_img_preview,
+                     caption="Vista previa en tiempo real — ajusta los controles para reposicionar las ROIs",
+                     use_container_width=True)
+        else:
+            st.image(img, caption="Imagen original (sin ROIs aún)", use_container_width=True)
 
     if not rois:
-        st.markdown('<div class="warn-box">No hay ROIs definidas. Configure los parámetros de posición y tamaño.</div>',
-                    unsafe_allow_html=True)
         render_footer()
         st.stop()
 
-    # Dibujar ROIs sobre imagen
+    # Sincronizar assignments_dict para uso posterior
     assignments_dict = {}
     if st.session_state["assignment_df"] is not None:
         for _, row in st.session_state["assignment_df"].iterrows():
             assignments_dict[row["ROI"]] = row.get("Tipo", "Sin asignar")
-    ann_img = draw_rois(img, rois, assignments_dict)
-    st.session_state["annotated_img"] = ann_img
-    with col_img2:
-        st.image(ann_img, caption="Imagen con ROIs", use_container_width=True)
 
     # ── PASO 3 ────────────────────────────────────────────────
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
@@ -1283,6 +1389,10 @@ if pagina == "Analisis":
         assignments_dict[row["ROI"]] = row.get("Tipo", "Sin asignar")
     ann_img = draw_rois(img, rois, assignments_dict)
     st.session_state["annotated_img"] = ann_img
+    # Mostrar imagen actualizada con colores de tipo bajo la tabla de asignación
+    st.image(ann_img,
+             caption="Imagen actualizada con tipos de ROI asignados — verde=Estándar, azul=Muestra, amber=Blanco",
+             use_container_width=True)
 
     blank_rows  = edited_df[edited_df["Tipo"] == "Blanco"]
     blank_label = blank_rows["ROI"].iloc[0] if len(blank_rows) > 0 else None
@@ -1664,16 +1774,38 @@ ya que distintos analitos y reactivos colorimétricos tienen su máximo de absor
         asgn        = st.session_state["assignment_df"]
         analyte_rep = asgn["Analito"].iloc[0] if asgn is not None and not asgn.empty else "N/D"
         method_rep  = "Adicion de estandar" if st.session_state["sa_result"] else "Calibracion externa"
+
+        # Extraer datos crudos de calibración para el gráfico matplotlib
+        cal_concs_pdf   = None
+        cal_signals_pdf = None
+        cal_channel_pdf = st.session_state.get("best_channel", "")
+        cal_analyte_pdf = analyte_rep
+        cal_unit_pdf    = asgn["Unidad"].iloc[0] if asgn is not None and not asgn.empty else "mg/L"
+
+        df_abs_tmp = st.session_state.get("df_absorbance")
+        if df_abs_tmp is not None and cal_channel_pdf:
+            std_tmp = df_abs_tmp[df_abs_tmp["Tipo"] == "Estandar"]
+            if not std_tmp.empty and "Concentracion" in std_tmp.columns:
+                a_col_tmp = f"A_dig_{cal_channel_pdf}"
+                if a_col_tmp in std_tmp.columns:
+                    cal_concs_pdf   = std_tmp["Concentracion"].values.astype(float)
+                    cal_signals_pdf = std_tmp[a_col_tmp].values.astype(float)
+
         try:
             pdf_bytes = generate_pdf_report(
-                analyte           = analyte_rep,
-                method            = method_rep,
-                df_rgb            = st.session_state["df_norm"],
-                df_results        = st.session_state["df_results"],
-                cal_result        = st.session_state["cal_result"],
-                fig_cal           = st.session_state["cal_fig"],
-                annotated_img     = st.session_state["annotated_img"],
+                analyte             = analyte_rep,
+                method              = method_rep,
+                df_rgb              = st.session_state["df_norm"],
+                df_results          = st.session_state["df_results"],
+                cal_result          = st.session_state["cal_result"],
+                fig_cal             = st.session_state["cal_fig"],
+                annotated_img       = st.session_state["annotated_img"],
                 triplicate_stats_df = st.session_state.get("triplicate_stats_df"),
+                cal_concs           = cal_concs_pdf,
+                cal_signals         = cal_signals_pdf,
+                cal_channel         = cal_channel_pdf,
+                cal_analyte         = cal_analyte_pdf,
+                cal_unit            = cal_unit_pdf,
             )
             b64      = base64.b64encode(pdf_bytes).decode()
             now_str  = datetime.datetime.now().strftime("%Y%m%d_%H%M")
