@@ -1627,9 +1627,10 @@ ya que distintos analitos y reactivos colorimétricos tienen su máximo de absor
             st.markdown(f"**{row['Muestra']}** — {an}: `{c_val} {row['Unidad']}`")
             evals = evaluate_normative_status(an, float(c_val))
             for ev in evals:
-                lim_txt = f"{ev['limite']} mg/L" if ev["limite"] else "—"
+                lim_txt   = f"{ev['limite']} mg/L" if ev["limite"] else "—"
+                badge_cls = ev["badge"]
                 st.markdown(
-                    f"&nbsp;&nbsp;<span class='badge-{ev[\"badge\"]}'>{ev['status']}</span> "
+                    f"&nbsp;&nbsp;<span class='badge-{badge_cls}'>{ev['status']}</span> "
                     f"<span style='color:{TEXT_SUB};font-size:0.83rem;'>"
                     f"{ev['norma']} &nbsp;|&nbsp; Limite: {lim_txt}</span>",
                     unsafe_allow_html=True,
@@ -1643,9 +1644,10 @@ ya que distintos analitos y reactivos colorimétricos tienen su máximo de absor
         st.markdown(f"**Adicion de estandar** — {an}: `{c_val:.4f} {unit}`")
         evals = evaluate_normative_status(an, float(c_val))
         for ev in evals:
-            lim_txt = f"{ev['limite']} mg/L" if ev["limite"] else "—"
+            lim_txt   = f"{ev['limite']} mg/L" if ev["limite"] else "—"
+            badge_cls = ev["badge"]
             st.markdown(
-                f"&nbsp;&nbsp;<span class='badge-{ev[\"badge\"]}'>{ev['status']}</span> "
+                f"&nbsp;&nbsp;<span class='badge-{badge_cls}'>{ev['status']}</span> "
                 f"<span style='color:{TEXT_SUB};font-size:0.83rem;'>"
                 f"{ev['norma']} &nbsp;|&nbsp; Limite: {lim_txt}</span>",
                 unsafe_allow_html=True,
