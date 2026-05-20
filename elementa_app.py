@@ -728,85 +728,55 @@ if pagina=="Analisis":
         st.markdown(f"<hr style='border-color:{BORDER};margin:16px 0;'>",unsafe_allow_html=True)
         slbl("Paso 2 — Definir regiones de interes (ROIs)")
 
-        roi_mode=st.radio("Modo",["Manual","Automatico"],horizontal=True,key="roi_mode")
         ctrl_col,img_col=st.columns([1,1],gap="large")
 
         with ctrl_col:
-            if roi_mode=="Automatico":
-                dev_auto=st.selectbox("Tipo",["Microplaca de 96 pocillos","Viales lineales"],key="dev_auto")
-                st.session_state["device_type"]=dev_auto
-                from_preset=st.radio("Sensibilidad",["Alta (permisiva)","Media (recomendada)","Baja (estricta)"],
-                                     index=1,horizontal=True,key="auto_sens")
-                min_r=8; max_r=40; min_dist=20; sens={"Alta (permisiva)":18,"Media (recomendada)":28,"Baja (estricta)":42}[from_preset]
-                with st.expander("Parametros geometricos",expanded=False):
-                    min_r=st.slider("Radio min (px)",3,60,8); max_r=st.slider("Radio max (px)",8,120,40); min_dist=st.slider("Distancia min (px)",5,100,20)
-                if st.button("Detectar ROIs",key="btn_det"):
-                    with st.spinner("Procesando..."):
-                        gray=cv2.cvtColor(img,cv2.COLOR_RGB2GRAY)
-                        clahe=cv2.createCLAHE(clipLimit=2.5,tileGridSize=(8,8))
-                        blur=cv2.GaussianBlur(clahe.apply(gray),(9,9),2)
-                        circles=cv2.HoughCircles(blur,cv2.HOUGH_GRADIENT,dp=1.2,minDist=min_dist,
-                                                  param1=max(30,int(sens*1.8)),param2=int(sens),
-                                                  minRadius=min_r,maxRadius=max_r)
-                        if circles is not None:
-                            circles=np.round(circles[0]).astype(int)
-                            rl=list("ABCDEFGH")
-                            sorted_c=sorted(circles.tolist(),key=lambda c:c[1])
-                            mean_r=float(np.mean([c[2] for c in sorted_c]))
-                            row_gap=max(mean_r*1.4,8.0); rows_g=[[sorted_c[0]]]
-                            for c in sorted_c[1:]:
-                                if c[1]-rows_g[-1][-1][1]>row_gap: rows_g.append([c])
-                                else: rows_g[-1].append(c)
-                            rois_det=[]
-                            for ri,row in enumerate(rows_g):
-                                if ri>=8: break
-                                for ci,(cx,cy,cr) in enumerate(sorted(row,key=lambda c:c[0])):
-                                    rois_det.append({"x":max(0,int(cx-cr)),"y":max(0,int(cy-cr)),
-                                                     "w":int(cr*2),"h":int(cr*2),"label":f"{rl[ri]}{ci+1}",
-                                                     "_cx":cx,"_cy":cy,"_cr":cr})
-                            st.session_state["rois"]=rois_det; st.session_state["_asgn_fp"]=""
-                            okbox(f"{len(rois_det)} ROIs detectadas.")
-                        else:
-                            wbox("No se detectaron circulos. Ajuste los parametros.")
-                rois=st.session_state.get("rois",[])
-                if rois and st.session_state.get("freeze_rois"):
-                    okbox(f"{len(rois)} ROIs bloqueadas.")
-                if rois:
-                    if st.button("Aceptar y bloquear ROIs"):
-                        st.session_state["freeze_rois"]=True
+            dev=st.selectbox("Tipo de dispositivo",
+                             ["Viales lineales","Microplaca de 96 pocillos","Personalizado"],
+                             key="dev_sel")
+            st.session_state["device_type"]=dev
+            freeze=st.toggle("Bloquear ROIs",value=st.session_state["freeze_rois"],key="frz")
+            st.session_state["freeze_rois"]=freeze
+
+            if not freeze:
+                # Sin st.form — cada slider genera un rerun inmediato
+                # → imagen actualiza en tiempo real mientras se ajustan coordenadas
+                if dev=="Viales lineales":
+                    n  = st.number_input("N de viales",2,24,6,1,key="vn")
+                    x0 = st.slider("X inicial (px)",0,W-1,int(W*.05),key="vx0")
+                    y0 = st.slider("Y inicial (px)",0,H-1,int(H*.25),key="vy0")
+                    rw = st.slider("Ancho ROI (px)",5,200,40,key="vrw")
+                    rh = st.slider("Alto ROI (px)", 5,300,60,key="vrh")
+                    dx = st.slider("Espaciado X (px)",0,300,int(W*.08),key="vdx")
+                    dy = st.slider("Espaciado Y (px)",0,200,0,key="vdy")
+                    rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
+
+                elif dev=="Microplaca de 96 pocillos":
+                    x0   = st.slider("X inicial (px)",0,W-1,int(W*.05),key="px0")
+                    y0   = st.slider("Y inicial (px)",0,H-1,int(H*.05),key="py0")
+                    rw   = st.slider("Ancho pocillo (px)",4,80,20,key="prw")
+                    rh   = st.slider("Alto pocillo (px)", 4,80,20,key="prh")
+                    dx   = st.slider("Espaciado X (px)",10,200,50,key="pdx")
+                    dy   = st.slider("Espaciado Y (px)",10,200,50,key="pdy")
+                    rows_n=st.number_input("Filas",   1,8, 8,1,key="prows")
+                    cols_n=st.number_input("Columnas",1,12,12,1,key="pcols")
+                    rois=gen_rois_plate(x0,y0,rw,rh,dx,dy,int(rows_n),int(cols_n))
+
+                else:  # Personalizado
+                    n  = st.number_input("N de ROIs",2,50,6,1,key="cn")
+                    x0 = st.slider("X inicial (px)",0,W-1,int(W*.05),key="cx0")
+                    y0 = st.slider("Y inicial (px)",0,H-1,int(H*.1), key="cy0")
+                    rw = st.slider("Ancho ROI (px)",5,200,30,key="crw")
+                    rh = st.slider("Alto ROI (px)", 5,200,30,key="crh")
+                    dx = st.slider("Espaciado X (px)",0,300,int(W*.08),key="cdx")
+                    dy = st.slider("Espaciado Y (px)",0,300,int(H*.08),key="cdy")
+                    rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
+
+                st.session_state["rois"]=rois
             else:
-                dev=st.selectbox("Tipo de dispositivo",["Viales lineales","Microplaca de 96 pocillos","Personalizado"],key="dev_sel")
-                st.session_state["device_type"]=dev
-                freeze=st.toggle("Bloquear ROIs",value=st.session_state["freeze_rois"],key="frz")
-                st.session_state["freeze_rois"]=freeze
-                if not freeze:
-                    with st.form("roi_form"):
-                        if dev=="Viales lineales":
-                            n=st.number_input("N viales",2,24,6,1)
-                            x0=st.slider("X inicial",0,W-1,int(W*.05))
-                            y0=st.slider("Y inicial",0,H-1,int(H*.25))
-                            rw=st.slider("Ancho ROI",5,200,40); rh=st.slider("Alto ROI",5,300,60)
-                            dx=st.slider("Espaciado X",0,300,int(W*.08)); dy=st.slider("Espaciado Y",0,200,0)
-                        elif dev=="Microplaca de 96 pocillos":
-                            n=None; x0=st.slider("X inicial",0,W-1,int(W*.05)); y0=st.slider("Y inicial",0,H-1,int(H*.05))
-                            rw=st.slider("Ancho ROI",4,80,20); rh=st.slider("Alto ROI",4,80,20)
-                            dx=st.slider("Espaciado X",10,200,50); dy=st.slider("Espaciado Y",10,200,50)
-                            rows_n=st.number_input("Filas",1,8,8,1); cols_n=st.number_input("Columnas",1,12,12,1)
-                        else:
-                            n=st.number_input("N ROIs",2,50,6,1)
-                            x0=st.slider("X inicial",0,W-1,int(W*.05)); y0=st.slider("Y inicial",0,H-1,int(H*.1))
-                            rw=st.slider("Ancho ROI",5,200,30); rh=st.slider("Alto ROI",5,200,30)
-                            dx=st.slider("Espaciado X",0,300,int(W*.08)); dy=st.slider("Espaciado Y",0,300,int(H*.08))
-                        sub=st.form_submit_button("Aplicar ROIs",use_container_width=True)
-                    if sub:
-                        if dev=="Microplaca de 96 pocillos":
-                            nr=gen_rois_plate(x0,y0,rw,rh,dx,dy,int(rows_n),int(cols_n))
-                        else:
-                            nr=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
-                        st.session_state["rois"]=nr; st.session_state["_asgn_fp"]=""
-                    rois=st.session_state.get("rois",[])
-                else:
-                    rois=st.session_state.get("rois",[]); ibox(f"ROIs bloqueadas: {len(rois)} regiones.")
+                rois=st.session_state.get("rois",[])
+                if rois: okbox(f"ROIs bloqueadas — {len(rois)} regiones. Desactive para reajustar.")
+                else:    wbox("No hay ROIs definidas. Desactive el bloqueo para configurar.")
 
         with img_col:
             rois=st.session_state.get("rois",[])
