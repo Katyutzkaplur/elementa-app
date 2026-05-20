@@ -741,6 +741,31 @@ if pagina=="Analisis":
                              ["Viales lineales","Microplaca de 96 pocillos","Personalizado"],
                              key="dev_sel")
             st.session_state["device_type"]=dev
+
+            # Mensaje de coordenadas recomendadas según dispositivo
+            if dev == "Microplaca de 96 pocillos":
+                st.markdown(
+                    '<div class="info-box">'
+                    '<b>Coordenadas recomendadas para microplaca:</b><br>'
+                    'X inicial: <b>107 px</b> &nbsp;|&nbsp; '
+                    'Y inicial: <b>74 px</b> &nbsp;|&nbsp; '
+                    'Ancho pocillo: <b>20 px</b> &nbsp;|&nbsp; '
+                    'Alto pocillo: <b>18 px</b> &nbsp;|&nbsp; '
+                    'Espaciado X: <b>65 px</b> &nbsp;|&nbsp; '
+                    'Espaciado Y: <b>59 px</b>'
+                    '</div>',
+                    unsafe_allow_html=True)
+            elif dev == "Viales lineales":
+                st.markdown(
+                    '<div class="info-box">'
+                    '<b>Coordenadas recomendadas para viales:</b><br>'
+                    'X inicial: <b>394 px</b> &nbsp;|&nbsp; '
+                    'Y inicial: <b>497 px</b> &nbsp;|&nbsp; '
+                    'Ancho ROI: <b>33 px</b> &nbsp;|&nbsp; '
+                    'Alto ROI: <b>49 px</b> &nbsp;|&nbsp; '
+                    'Espaciado Y: <b>108 px</b>'
+                    '</div>',
+                    unsafe_allow_html=True)
             freeze=st.toggle("Bloquear ROIs",value=st.session_state["freeze_rois"],key="frz")
             st.session_state["freeze_rois"]=freeze
 
@@ -754,7 +779,7 @@ if pagina=="Analisis":
                     rw = st.slider("Ancho ROI (px)",5,200,40,key="vrw")
                     rh = st.slider("Alto ROI (px)", 5,300,60,key="vrh")
                     dx = st.slider("Espaciado X (px)",0,300,int(W*.08),key="vdx")
-                    dy = st.slider("Espaciado Y (px)",0,200,0,key="vdy")
+                    dy = st.slider("Espaciado Y (px)",0,300,0,key="vdy")
                     rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
 
                 elif dev=="Microplaca de 96 pocillos":
