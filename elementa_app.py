@@ -1509,24 +1509,46 @@ if pagina == "Analisis":
             else:     wbox("Sin blanco asignado.")
 
         with vis_col:
-            if is_plate:
-                # ── Grid reactivo: se recalcula con 'edited' en cada rerun ──
-                slbl("Grid de placa — actualización en tiempo real")
-                legend = " ".join(
-                    f'<span style="background:{c};color:{TEXT};padding:2px 7px;'
-                    f'border-radius:3px;font-size:.7rem;font-weight:700;margin-right:3px;">'
-                    f'{TIPO_SHORT[t]}</span>'
-                    for t, c in TIPO_COLORS.items() if t != "Sin asignar")
-                st.markdown(legend, unsafe_allow_html=True)
+            # Construir imagen anotada con tipos del rerun actual
+            type_map = dict(zip(edited["ROI"], edited["Tipo"]))
+            ann = draw_rois(img, rois, type_map)
+            st.session_state["annotated_img"] = ann
 
-                # Usar 'edited' directamente — garantiza datos del rerun actual
+            if is_plate:
                 tri_groups = detect_triplicates(edited)
                 st.session_state["tri_groups"] = tri_groups
-                st.plotly_chart(
-                    plot_microplate(edited, tri_groups),
-                    use_container_width=True,
-                    key="plate_grid_live")   # key fija evita parpadeo
 
+                # Dos pestañas internas: imagen real | grid abstracto
+                v_img, v_grid = st.tabs(["Imagen en tiempo real", "Grid de placa"])
+
+                with v_img:
+                    slbl("ROIs sobre imagen — actualización inmediata")
+                    # Leyenda de colores
+                    legend = " ".join(
+                        f'<span style="background:{c};color:{TEXT};padding:2px 7px;'
+                        f'border-radius:3px;font-size:.7rem;font-weight:700;'
+                        f'margin-right:3px;">{TIPO_SHORT[t]} = {t}</span>'
+                        for t, c in TIPO_COLORS.items() if t != "Sin asignar")
+                    st.markdown(legend, unsafe_allow_html=True)
+                    st.image(
+                        ann,
+                        caption="Cada asignación se refleja aquí al instante",
+                        use_container_width=True)
+
+                with v_grid:
+                    slbl("Grid 8×12 — distribución de pocillos")
+                    legend2 = " ".join(
+                        f'<span style="background:{c};color:{TEXT};padding:2px 7px;'
+                        f'border-radius:3px;font-size:.7rem;font-weight:700;'
+                        f'margin-right:3px;">{TIPO_SHORT[t]}</span>'
+                        for t, c in TIPO_COLORS.items() if t != "Sin asignar")
+                    st.markdown(legend2, unsafe_allow_html=True)
+                    st.plotly_chart(
+                        plot_microplate(edited, tri_groups),
+                        use_container_width=True,
+                        key="plate_grid_live")
+
+                # Triplicados detectados (debajo de ambas vistas)
                 if tri_groups:
                     n_g = len(tri_groups)
                     n_w = sum(len(v) for v in tri_groups.values())
@@ -1546,19 +1568,18 @@ if pagina == "Analisis":
                         st.dataframe(pd.DataFrame(tri_rows),
                                      use_container_width=True, hide_index=True)
             else:
-                # Para viales: imagen anotada reactiva
-                type_map = dict(zip(edited["ROI"], edited["Tipo"]))
-                ann = draw_rois(img, rois, type_map)
-                st.session_state["annotated_img"] = ann
-                st.image(ann,
-                         caption="Imagen con tipos asignados — se actualiza al editar",
-                         use_container_width=True)
-
-        # ── Imagen anotada (solo microplaca, debajo de la tabla) ───
-        if is_plate:
-            type_map = dict(zip(edited["ROI"], edited["Tipo"]))
-            ann = draw_rois(img, rois, type_map)
-            st.session_state["annotated_img"] = ann
+                # Viales: imagen anotada directamente
+                slbl("Imagen en tiempo real")
+                legend = " ".join(
+                    f'<span style="background:{c};color:{TEXT};padding:2px 7px;'
+                    f'border-radius:3px;font-size:.7rem;font-weight:700;'
+                    f'margin-right:3px;">{TIPO_SHORT[t]} = {t}</span>'
+                    for t, c in TIPO_COLORS.items() if t != "Sin asignar")
+                st.markdown(legend, unsafe_allow_html=True)
+                st.image(
+                    ann,
+                    caption="Los colores de cada ROI se actualizan al instante",
+                    use_container_width=True)
 
         footer()
 
@@ -2005,3 +2026,4 @@ elif pagina == "Normativa y Fuentes":
         okbox("Limites normativos actualizados para esta sesion.")
 
     footer()
+
