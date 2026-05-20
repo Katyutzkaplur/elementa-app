@@ -171,15 +171,30 @@ def ensure_asgn(rois):
     st.session_state["_asgn_fp"] = fp
 
 def draw_rois(img, rois, type_map=None):
+    """
+    Dibuja ROIs sobre la imagen con:
+    - Rectángulo coloreado por tipo (BLANK=azul, STD=verde, SMP=azul, CTRL=morado, ADD=rosa)
+    - Etiqueta con el nombre de la ROI y el tipo corto (BLANK/STD/SMP/CTRL/ADD)
+    - Actualización inmediata al cambiar tipos en la tabla
+    """
     out = img.copy()
     for roi in rois:
-        tipo = (type_map or {}).get(roi["label"],"Sin asignar")
-        rgb  = TIPO_BGR.get(tipo,(30,41,59))
-        bgr  = (rgb[2],rgb[1],rgb[0])
-        x,y,w,h = roi["x"],roi["y"],roi["w"],roi["h"]
-        cv2.rectangle(out,(x,y),(x+w,y+h),bgr,2)
-        cv2.putText(out,roi["label"],(x,max(y-3,10)),
-                    cv2.FONT_HERSHEY_SIMPLEX,0.38,bgr,1,cv2.LINE_AA)
+        tipo = (type_map or {}).get(roi["label"], "Sin asignar")
+        rgb  = TIPO_BGR.get(tipo, (30, 41, 59))
+        bgr  = (rgb[2], rgb[1], rgb[0])
+        x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
+        # Rectángulo principal
+        cv2.rectangle(out, (x, y), (x+w, y+h), bgr, 2)
+        # Etiqueta con nombre de ROI
+        cv2.putText(out, roi["label"], (x, max(y-3, 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, bgr, 1, cv2.LINE_AA)
+        # Tipo corto dentro del rectángulo si hay espacio suficiente
+        short = TIPO_SHORT.get(tipo, "")
+        if short and short != "--" and w >= 25 and h >= 16:
+            cx = x + w // 2
+            cy = y + h // 2
+            cv2.putText(out, short, (cx - 12, cy + 4),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.32, bgr, 1, cv2.LINE_AA)
     return out
 
 def extract_rgb(img, rois):
@@ -797,11 +812,23 @@ if pagina=="Analisis":
             rois=st.session_state.get("rois",[])
             if rois:
                 ensure_asgn(rois)
-                tm=dict(zip(st.session_state["assignment_df"]["ROI"],st.session_state["assignment_df"]["Tipo"]))
-                ann=draw_rois(img,rois,tm); st.session_state["annotated_img"]=ann
-                st.image(ann,caption="Vista previa en tiempo real",use_container_width=True)
+                tm=dict(zip(st.session_state["assignment_df"]["ROI"],
+                            st.session_state["assignment_df"]["Tipo"]))
+                ann=draw_rois(img,rois,tm)
+                st.session_state["annotated_img"]=ann
+                # Leyenda inline
+                leg=" ".join(
+                    f'<span style="background:{c};color:{TEXT};padding:1px 7px;'
+                    f'border-radius:3px;font-size:.68rem;font-weight:700;margin-right:2px;">'
+                    f'{TIPO_SHORT[t]}</span>'
+                    for t,c in TIPO_COLORS.items() if t!="Sin asignar")
+                st.markdown(leg,unsafe_allow_html=True)
+                st.image(ann,
+                         caption="Overlay en tiempo real — los colores reflejan los tipos asignados",
+                         use_container_width=True)
             else:
-                st.image(img,caption="Imagen original",use_container_width=True)
+                st.image(img,caption="Imagen original — defina ROIs para ver el overlay",
+                         use_container_width=True)
 
         if not rois:
             ibox("Configure las ROIs para continuar.")
@@ -841,24 +868,38 @@ if pagina=="Analisis":
             else: wbox("Sin blanco asignado.")
 
         with vis_col:
+            # ── Imagen anotada — siempre visible, siempre actualizada ──────
+            # draw_rois usa 'edited' del rerun actual → refleja cambios al instante
             tm2=dict(zip(edited["ROI"],edited["Tipo"]))
-            ann2=draw_rois(img,rois,tm2); st.session_state["annotated_img"]=ann2
+            ann2=draw_rois(img,rois,tm2)
+            st.session_state["annotated_img"]=ann2
+
+            # Leyenda de colores
+            legend=" ".join(
+                f'<span style="background:{c};color:{TEXT};padding:2px 8px;'
+                f'border-radius:3px;font-size:.7rem;font-weight:700;margin-right:3px;">'
+                f'{TIPO_SHORT[t]}</span>'
+                for t,c in TIPO_COLORS.items() if t!="Sin asignar")
+            st.markdown(f'<p class="slbl">Overlay en tiempo real</p>',unsafe_allow_html=True)
+            st.markdown(legend,unsafe_allow_html=True)
+
+            # IMAGEN PRINCIPAL — siempre al frente, nunca dentro de un tab
+            st.image(ann2,
+                     caption="Los colores se actualizan al instante al editar la tabla",
+                     use_container_width=True)
+
+            # Grid abstracto de placa — secundario, colapsable
             if is_plate:
-                tri_grp=detect_triplicates(edited); st.session_state["tri_groups"]=tri_grp
-                slbl("Imagen en tiempo real")
-                legend=" ".join(f'<span style="background:{c};color:{TEXT};padding:2px 7px;border-radius:3px;font-size:.7rem;font-weight:700;margin-right:3px;">{TIPO_SHORT[t]}</span>'
-                                for t,c in TIPO_COLORS.items() if t!="Sin asignar")
-                st.markdown(legend,unsafe_allow_html=True)
-                vi,vg=st.tabs(["Imagen","Grid 8x12"])
-                with vi:
-                    st.image(ann2,caption="Actualiza al editar la tabla",use_container_width=True)
-                with vg:
-                    st.plotly_chart(plot_plate(edited,tri_grp),use_container_width=True,key="plate_live")
+                tri_grp=detect_triplicates(edited)
+                st.session_state["tri_groups"]=tri_grp
+                with st.expander("Grid 8x12 — distribucion de pocillos",expanded=False):
+                    st.plotly_chart(
+                        plot_plate(edited,tri_grp),
+                        use_container_width=True,
+                        key="plate_grid_exp")
                 if tri_grp:
                     n_g=len(tri_grp); n_w=sum(len(v) for v in tri_grp.values())
-                    ibox(f"<b>{n_g} grupos de triplicados</b> ({n_w} pocillos).")
-            else:
-                st.image(ann2,caption="Actualiza al editar la tabla",use_container_width=True)
+                    ibox(f"<b>{n_g} grupos de triplicados</b> ({n_w} pocillos detectados).")
         footer()
 
     # ── TAB 3: CALIBRACIÓN ─────────────────────────────────────────────────
