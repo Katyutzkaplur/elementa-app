@@ -230,11 +230,17 @@ def calc_absorbance(df, blank_roi, channels=("R_norm","G_norm","B_norm")):
         df[col]=df[ch].apply(lambda v: math.log10((bv+eps)/(v+eps)) if pd.notna(v) else np.nan)
     return df
 
-def fit_line(x,y):
-    mask=~(np.isnan(x)|np.isnan(y)); x,y=x[mask],y[mask]
-    if len(x)<2: return None
-    m,b,r,_,se=stats.linregress(x,y)
-    return {"m":m,"b":b,"r2":r**2,"se":se,"n":len(x),"res":y-(m*x+b),"x_fit":x,"y_fit":y}
+def fit_line(x, y):
+    mask = ~(np.isnan(x) | np.isnan(y))
+    x, y = x[mask], y[mask]
+    if len(x) < 2:
+        return None
+    # Evitar ValueError: linregress requiere al menos 2 valores distintos en X
+    if len(np.unique(x)) < 2:
+        return None
+    m, b, r, _, se = stats.linregress(x, y)
+    return {"m": m, "b": b, "r2": r**2, "se": se, "n": len(x),
+            "res": y - (m*x + b), "x_fit": x, "y_fit": y}
 
 def best_channel(df_merged):
     """Selecciona el canal RGB con mayor R² para estandares. FIX: usa df_merged directamente."""
@@ -917,7 +923,22 @@ if pagina=="Analisis":
                                                  tri_df=td))
                     okbox("Calibracion completada.")
                 else:
-                    wbox("No hay suficientes estandares. Asigne al menos 2 pocillos de tipo Estandar.")
+                    std_check = df_merged[df_merged["Tipo"]=="Estandar"]
+                    n_std = len(std_check)
+                    if n_std < 2:
+                        wbox(f"Se necesitan al menos 2 pocillos tipo <b>Estandar</b>. "
+                             f"Actualmente hay {n_std}. Asigne tipos en la pestana Procesamiento.")
+                    else:
+                        concs_check = std_check["Concentracion"].dropna().values.astype(float)
+                        n_unique = len(set(concs_check))
+                        if n_unique < 2:
+                            wbox("Todos los estandares tienen la misma concentracion "
+                                 f"({concs_check[0] if len(concs_check)>0 else 0}). "
+                                 "Ingrese al menos 2 niveles de concentracion distintos en la tabla.")
+                        else:
+                            wbox("No fue posible ajustar la calibracion. "
+                                 "Verifique que los estandares tengan concentraciones distintas "
+                                 "y que exista un blanco asignado.")
 
         cal=st.session_state.get("cal_result")
         if cal:
