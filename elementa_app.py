@@ -2026,4 +2026,3 @@ elif pagina == "Normativa y Fuentes":
         okbox("Limites normativos actualizados para esta sesion.")
 
     footer()
-
