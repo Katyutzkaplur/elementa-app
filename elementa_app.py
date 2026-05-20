@@ -289,97 +289,200 @@ def sort_wells_to_grid(circles_arr: np.ndarray) -> list[dict]:
     return rois
 
 
+# ── Presets de sensibilidad ───────────────────────────────────────────────
+# Cada preset define (hough_p2, min_i, max_i, min_sat, min_std)
+# hough_p2: umbral acumulador Hough (menor = detecta más círculos)
+# min/max_i: rango de intensidad media aceptable
+# min_sat:   saturación HSV mínima (discrimina soluciones sin color)
+# min_std:   desviación estándar mínima (descarta zonas uniformes/vacías)
+DETECTION_PRESETS = {
+    "Alta (permisiva)":    dict(hough_p2=18, min_i=12, max_i=250, min_sat=2,  min_std=2),
+    "Media (recomendada)": dict(hough_p2=28, min_i=22, max_i=240, min_sat=8,  min_std=5),
+    "Baja (estricta)":     dict(hough_p2=42, min_i=35, max_i=220, min_sat=18, min_std=9),
+}
+
+
+def filter_well_by_content(img_rgb: np.ndarray, roi: dict,
+                            detect_only_filled: bool = True,
+                            min_intensity: float = 22,
+                            max_intensity: float = 240,
+                            min_saturation: float = 8,
+                            min_std: float = 5) -> bool:
+    """
+    Retorna True si el ROI contiene muestra analítica real.
+
+    Descarta automáticamente
+    ------------------------
+    - Pocillos vacíos (alta intensidad uniforme, baja saturación)
+    - Reflejos especulares (intensidad > max_intensity con muy baja desv. std)
+    - Regiones oscuras sin muestra (intensidad < min_intensity)
+    - Zonas de fondo uniformes (std < min_std)
+    - Soluciones incoloras/agua pura (saturación HSV < min_saturation)
+
+    Análisis multicanal
+    -------------------
+    1. Intensidad media (RGB) — fuera de rango: vacío o reflejo
+    2. Desviación estándar (RGB) — demasiado uniforme: vacío / agua
+    3. Saturación HSV media — muy baja: incoloro / aire / fondo blanco
+    4. Detección de saturación localizada — al menos 20% de píxeles con
+       saturación > 15 (descarta soluciones muy diluidas pero con ruido global)
+    """
+    H, W = img_rgb.shape[:2]
+    x1 = max(0, roi["x"]); y1 = max(0, roi["y"])
+    x2 = min(W, x1 + roi["w"]); y2 = min(H, y1 + roi["h"])
+    crop = img_rgb[y1:y2, x1:x2]
+
+    if crop.size == 0 or crop.shape[0] < 2 or crop.shape[1] < 2:
+        return False
+
+    mean_i = float(crop.mean())
+
+    # ── 1. Rango de intensidad ────────────────────────────────────────
+    if mean_i < min_intensity:
+        return False   # Demasiado oscuro: pocillo tapado, sombra, suciedad
+    if mean_i > max_intensity:
+        return False   # Demasiado brillante: reflejo especular, pocillo vacío
+
+    if not detect_only_filled:
+        return True    # Modo permisivo: solo filtros geométricos/intensidad
+
+    # ── 2. Variación interna (std) ────────────────────────────────────
+    std_i = float(crop.std())
+    if std_i < min_std:
+        return False   # Zona demasiado uniforme: pocillo vacío / agua / reflejo plano
+
+    # ── 3. Saturación HSV ─────────────────────────────────────────────
+    crop8   = crop.astype(np.uint8)
+    hsv     = cv2.cvtColor(cv2.cvtColor(crop8, cv2.COLOR_RGB2BGR), cv2.COLOR_BGR2HSV)
+    sat_ch  = hsv[:, :, 1].astype(float)
+    mean_sat= float(sat_ch.mean())
+    if mean_sat < min_saturation:
+        return False   # Sin color: agua clara, pocillo vacío, fondo blanco
+
+    # ── 4. Fracción de píxeles "coloreados" ───────────────────────────
+    colored_frac = float((sat_ch > 15).mean())
+    if colored_frac < 0.15:
+        return False   # Menos del 15% de píxeles tienen color apreciable
+
+    return True
+
+
 def detect_microplate_rois(img: np.ndarray,
                             min_r: int = 8, max_r: int = 40,
-                            sensitivity: int = 30,
-                            min_dist: int = 20) -> list[dict]:
+                            sensitivity: int = 28,
+                            min_dist: int = 20,
+                            detect_only_filled: bool = True,
+                            min_intensity: float = 22,
+                            max_intensity: float = 240,
+                            min_saturation: float = 8,
+                            min_std: float = 5) -> list[dict]:
     """
-    Detecta pocillos circulares en imagen de microplaca usando HoughCircles.
+    Detecta pocillos circulares con filtrado inteligente de contenido.
 
-    Parámetros
-    ----------
-    img         : imagen RGB
-    min_r       : radio mínimo de pocillo (px)
-    max_r       : radio máximo de pocillo (px)
-    sensitivity : umbral acumulador Hough — menor valor = más círculos (10–80)
-    min_dist    : separación mínima entre centros (px)
+    Paso 1 — Geometría: HoughCircles con CLAHE para robustar ante
+             iluminación de smartphone.
+    Paso 2 — Contenido: descarta pocillos vacíos, reflejos y ruido
+             usando análisis de intensidad, std y saturación HSV.
 
-    Retorna lista de dicts ROI con etiquetas A1-H12.
+    Retorna lista de ROIs con etiquetas A1-H12 para pocillos activos.
     """
-    gray    = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    # Mejorar contraste con CLAHE antes de Hough
-    clahe   = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-    enhanced= clahe.apply(gray)
-    blurred = cv2.GaussianBlur(enhanced, (9, 9), 2)
+    gray     = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    clahe    = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    blurred  = cv2.GaussianBlur(enhanced, (9, 9), 2)
 
     circles = cv2.HoughCircles(
-        blurred,
-        cv2.HOUGH_GRADIENT,
-        dp=1.2,
+        blurred, cv2.HOUGH_GRADIENT, dp=1.2,
         minDist=int(min_dist),
-        param1=max(30, int(sensitivity * 1.8)),  # Umbral Canny
-        param2=int(sensitivity),                  # Umbral acumulador
-        minRadius=int(min_r),
-        maxRadius=int(max_r),
+        param1=max(30, int(sensitivity * 1.8)),
+        param2=int(sensitivity),
+        minRadius=int(min_r), maxRadius=int(max_r),
     )
     if circles is None:
         return []
+
     circles = np.round(circles[0]).astype(int)
-    return sort_wells_to_grid(circles)
+    all_rois = sort_wells_to_grid(circles)
+
+    # ── Filtrado por contenido ────────────────────────────────────────
+    filtered = []
+    for roi in all_rois:
+        if filter_well_by_content(
+                img, roi,
+                detect_only_filled=detect_only_filled,
+                min_intensity=min_intensity,
+                max_intensity=max_intensity,
+                min_saturation=min_saturation,
+                min_std=min_std):
+            filtered.append(roi)
+
+    return filtered
 
 
 def detect_vial_rois(img: np.ndarray,
                      min_area: int = 400,
                      max_area_ratio: float = 0.20,
-                     sensitivity: int = 50) -> list[dict]:
+                     sensitivity: int = 50,
+                     detect_only_filled: bool = True,
+                     min_intensity: float = 22,
+                     max_intensity: float = 240,
+                     min_saturation: float = 8,
+                     min_std: float = 5) -> list[dict]:
     """
-    Detecta viales/tubos mediante umbral adaptativo y contornos.
+    Detecta viales/tubos con umbral adaptativo y filtrado de contenido.
 
-    Parámetros
-    ----------
-    img             : imagen RGB
-    min_area        : área mínima de contorno (px²)
-    max_area_ratio  : fracción máxima del área de imagen
-    sensitivity     : 10–90, menor = más estricto
-
-    Retorna lista de ROIs ordenada de izquierda a derecha.
+    Paso 1 — Contornos: umbral adaptativo Gaussiano + morfología.
+    Paso 2 — Contenido: descarta viales vacíos y ruido usando los
+             mismos criterios que detect_microplate_rois.
     """
-    H, W    = img.shape[:2]
-    max_area= int(H * W * max_area_ratio)
-    gray    = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    H, W     = img.shape[:2]
+    max_area = int(H * W * max_area_ratio)
+    gray     = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    # Umbral adaptativo
-    c_val   = max(2, int((100 - sensitivity) / 8))
-    thresh  = cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV, 11, c_val)
-
-    # Morfología para cerrar huecos
-    kernel  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    thresh  = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
-    thresh  = cv2.morphologyEx(thresh, cv2.MORPH_OPEN,  kernel, iterations=1)
+    c_val  = max(2, int((100 - sensitivity) / 8))
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY_INV, 11, c_val)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN,  kernel, iterations=1)
 
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    rois = []
+    candidates  = []
     for cnt in contours:
         area = cv2.contourArea(cnt)
         if not (min_area < area < max_area):
             continue
         x, y, w, h = cv2.boundingRect(cnt)
-        aspect = w / h if h > 0 else 0
-        if not (0.15 < aspect < 6.0):      # Descartar formas extremas
+        aspect      = w / h if h > 0 else 0
+        if not (0.15 < aspect < 6.0):
             continue
-        # Compacidad: relación entre área del contorno y bounding box
         compactness = area / (w * h) if w * h > 0 else 0
-        if compactness < 0.25:             # Descartar ruido disperso
+        if compactness < 0.25:
             continue
-        rois.append({"x": x, "y": y, "w": w, "h": h, "label": "", "_area": area})
+        # ── Circularidad del contorno ─────────────────────────────────
+        perimeter = cv2.arcLength(cnt, True)
+        circularity = (4 * math.pi * area / (perimeter ** 2)) if perimeter > 0 else 0
+        candidates.append({
+            "x": x, "y": y, "w": w, "h": h, "label": "",
+            "_area": area, "_circ": circularity})
 
-    # Ordenar izquierda→derecha agrupando por banda horizontal
-    rois.sort(key=lambda r: (r["y"] // max(1, H // 6), r["x"]))
-    for i, roi in enumerate(rois):
+    # ── Filtrado por contenido ────────────────────────────────────────
+    filtered = []
+    for roi in candidates:
+        if filter_well_by_content(
+                img, roi,
+                detect_only_filled=detect_only_filled,
+                min_intensity=min_intensity,
+                max_intensity=max_intensity,
+                min_saturation=min_saturation,
+                min_std=min_std):
+            filtered.append(roi)
+
+    # Ordenar izquierda→derecha
+    filtered.sort(key=lambda r: (r["y"] // max(1, H // 6), r["x"]))
+    for i, roi in enumerate(filtered):
         roi["label"] = f"ROI {i + 1}"
-    return rois
+    return filtered
 
 
 def validate_rois(rois: list[dict], img_shape: tuple,
@@ -1150,42 +1253,69 @@ if pagina == "Analisis":
                     key="dev_auto_sel")
                 st.session_state["device_type"] = dev_auto
 
-                with st.expander("Parametros de deteccion", expanded=True):
+                # ── Filtrado inteligente ─────────────────────────
+                only_filled = st.toggle(
+                    "Detectar unicamente pocillos llenos",
+                    value=True, key="only_filled",
+                    help="Descarta pocillos vacios, reflejos y ruido usando "
+                         "analisis de intensidad, desviacion estandar y saturacion HSV.")
+
+                preset_name = st.radio(
+                    "Sensibilidad de deteccion",
+                    list(DETECTION_PRESETS.keys()),
+                    index=1, horizontal=True, key="det_preset",
+                    help="Media: recomendado para la mayoria de casos. "
+                         "Alta: captura mas pocillos (puede incluir falsos positivos). "
+                         "Baja: solo pocillos con señal clara.")
+                preset = DETECTION_PRESETS[preset_name]
+
+                # Valores por defecto (antes del expander)
+                min_r=8; max_r=40; min_dist=20
+                min_area_auto=400; max_area_pct=20; vial_sens=50
+
+                with st.expander("Parametros geometricos avanzados", expanded=False):
                     if dev_auto == "Microplaca de 96 pocillos":
-                        sens    = st.slider("Sensibilidad Hough (menor = mas circulos)",
-                                            10, 70, 30, key="auto_sens",
-                                            help="param2 del algoritmo Hough. "
-                                                 "Bajar si no detecta todos los pocillos.")
-                        min_r   = st.slider("Radio minimo (px)", 3, 60, 8,  key="auto_minr")
-                        max_r   = st.slider("Radio maximo (px)", 8, 120, 40, key="auto_maxr")
-                        min_dist= st.slider("Separacion minima entre centros (px)",
-                                            5, 100, 20, key="auto_mdist")
-                        st.markdown(
-                            f"<p style='color:{MUTED};font-size:.72rem;'>Ajuste los parametros "
-                            f"y haga clic en <b>Detectar</b>. La imagen de la derecha se "
-                            f"actualizara al aceptar los resultados.</p>",
-                            unsafe_allow_html=True)
+                        min_r   = st.slider("Radio minimo de pocillo (px)", 3, 60, 8,  key="auto_minr")
+                        max_r   = st.slider("Radio maximo de pocillo (px)", 8, 120, 40, key="auto_maxr")
+                        min_dist= st.slider("Separacion minima entre centros (px)", 5, 100, 20, key="auto_mdist")
                     else:
-                        min_area_auto = st.slider("Area minima de contorno (px²)",
-                                                  100, 5000, 400, key="auto_minarea")
-                        max_area_pct  = st.slider("Area maxima (% imagen)",
-                                                  1, 40, 20, key="auto_maxarea")
-                        vial_sens     = st.slider("Sensibilidad de umbral",
-                                                  10, 90, 50, key="auto_vsens",
-                                                  help="Mayor = detecta contornos mas tenues.")
+                        min_area_auto = st.slider("Area minima de contorno (px²)", 100, 5000, 400, key="auto_minarea")
+                        max_area_pct  = st.slider("Area maxima (% imagen)", 1, 40, 20, key="auto_maxarea")
+                        vial_sens     = st.slider("Sensibilidad de umbral morfologico", 10, 90, 50, key="auto_vsens")
+
+                # Mostrar criterios activos
+                if only_filled:
+                    st.markdown(
+                        f"<div class='info-box' style='font-size:.75rem;'>"
+                        f"Filtros activos — "
+                        f"Intensidad: {preset['min_i']}–{preset['max_i']} &nbsp;|&nbsp; "
+                        f"Sat. HSV min: {preset['min_sat']} &nbsp;|&nbsp; "
+                        f"Std min: {preset['min_std']}"
+                        f"</div>", unsafe_allow_html=True)
 
                 if st.button("Detectar ROIs", key="btn_detect"):
                     with st.spinner("Procesando con OpenCV..."):
                         if dev_auto == "Microplaca de 96 pocillos":
                             rois_det = detect_microplate_rois(
                                 img, min_r=min_r, max_r=max_r,
-                                sensitivity=sens, min_dist=min_dist)
+                                sensitivity=preset["hough_p2"],
+                                min_dist=min_dist,
+                                detect_only_filled=only_filled,
+                                min_intensity=preset["min_i"],
+                                max_intensity=preset["max_i"],
+                                min_saturation=preset["min_sat"],
+                                min_std=preset["min_std"])
                         else:
                             rois_det = detect_vial_rois(
                                 img,
                                 min_area=min_area_auto,
                                 max_area_ratio=max_area_pct/100,
-                                sensitivity=vial_sens)
+                                sensitivity=vial_sens,
+                                detect_only_filled=only_filled,
+                                min_intensity=preset["min_i"],
+                                max_intensity=preset["max_i"],
+                                min_saturation=preset["min_sat"],
+                                min_std=preset["min_std"])
 
                         rois_det = validate_rois(rois_det, img.shape)
                         st.session_state["rois_preview"] = rois_det
@@ -1350,65 +1480,85 @@ if pagina == "Analisis":
              "Para triplicados use la misma columna (A1/B1/C1).")
 
         fp = roi_fingerprint(rois)
-        edited = st.data_editor(
-            st.session_state["assignment_df"],
-            column_config={
-                "Tipo":    st.column_config.SelectboxColumn("Tipo",   options=TIPOS,   required=True),
-                "Unidad":  st.column_config.SelectboxColumn("Unidad", options=UNIDADES,required=True),
-                "Analito": st.column_config.SelectboxColumn("Analito",options=ANALITOS,required=True),
-                "Concentracion": st.column_config.NumberColumn("Conc.",min_value=0.0,step=0.001,format="%.4f"),
-                "Factor_dil":    st.column_config.NumberColumn("F.Dil",min_value=0.01,step=0.1,format="%.2f"),
-            },
-            num_rows="fixed", use_container_width=True,
-            key=f"asgn_ed_{fp}",
-        )
-        st.session_state["assignment_df"] = edited
+        dev = st.session_state.get("device_type", "")
+        is_plate = (dev == "Microplaca de 96 pocillos")
 
-        blank_r = edited[edited["Tipo"]=="Blanco"]
-        blank   = blank_r["ROI"].iloc[0] if not blank_r.empty else None
-        st.session_state["blank_label"] = blank
+        # ── Layout: tabla izquierda | grid/imagen derecha ─────────
+        tbl_col, vis_col = st.columns([6, 5] if is_plate else [1, 1], gap="large")
 
-        type_map = dict(zip(edited["ROI"],edited["Tipo"]))
-        ann = draw_rois(img, rois, type_map)
-        st.session_state["annotated_img"] = ann
-        st.image(ann, caption="Imagen con tipos asignados (BL=azul, STD=verde, SMP=naranja)", use_container_width=True)
+        with tbl_col:
+            edited = st.data_editor(
+                st.session_state["assignment_df"],
+                column_config={
+                    "Tipo":    st.column_config.SelectboxColumn("Tipo",   options=TIPOS,   required=True),
+                    "Unidad":  st.column_config.SelectboxColumn("Unidad", options=UNIDADES,required=True),
+                    "Analito": st.column_config.SelectboxColumn("Analito",options=ANALITOS,required=True),
+                    "Concentracion": st.column_config.NumberColumn("Conc.",min_value=0.0,step=0.001,format="%.4f"),
+                    "Factor_dil":    st.column_config.NumberColumn("F.Dil",min_value=0.01,step=0.1,format="%.2f"),
+                },
+                num_rows="fixed", use_container_width=True,
+                key=f"asgn_ed_{fp}",
+            )
+            # Guardar inmediatamente — no recrear si fingerprint no cambió
+            st.session_state["assignment_df"] = edited
 
-        if blank: okbox(f"Blanco de reactivos: <b>{blank}</b>")
-        else:     wbox("Sin blanco asignado. La absorbancia digital requiere un pocillo Blanco.")
+            blank_r = edited[edited["Tipo"] == "Blanco"]
+            blank   = blank_r["ROI"].iloc[0] if not blank_r.empty else None
+            st.session_state["blank_label"] = blank
+            if blank: okbox(f"Blanco: <b>{blank}</b>")
+            else:     wbox("Sin blanco asignado.")
 
-        # Grid de placa
-        dev = st.session_state.get("device_type","")
-        if dev == "Microplaca de 96 pocillos":
-            st.markdown("<hr style='border-color:#1E293B;margin:16px 0;'>",unsafe_allow_html=True)
-            slbl("Grid inteligente de microplaca 8x12")
+        with vis_col:
+            if is_plate:
+                # ── Grid reactivo: se recalcula con 'edited' en cada rerun ──
+                slbl("Grid de placa — actualización en tiempo real")
+                legend = " ".join(
+                    f'<span style="background:{c};color:{TEXT};padding:2px 7px;'
+                    f'border-radius:3px;font-size:.7rem;font-weight:700;margin-right:3px;">'
+                    f'{TIPO_SHORT[t]}</span>'
+                    for t, c in TIPO_COLORS.items() if t != "Sin asignar")
+                st.markdown(legend, unsafe_allow_html=True)
 
-            legend = " ".join(
-                f'<span style="background:{c};color:{TEXT};padding:2px 8px;border-radius:3px;'
-                f'font-size:.72rem;font-weight:700;margin-right:4px;">{TIPO_SHORT[t]} = {t}</span>'
-                for t,c in TIPO_COLORS.items() if t != "Sin asignar")
-            st.markdown(legend, unsafe_allow_html=True)
+                # Usar 'edited' directamente — garantiza datos del rerun actual
+                tri_groups = detect_triplicates(edited)
+                st.session_state["tri_groups"] = tri_groups
+                st.plotly_chart(
+                    plot_microplate(edited, tri_groups),
+                    use_container_width=True,
+                    key="plate_grid_live")   # key fija evita parpadeo
 
-            tri_groups = detect_triplicates(edited)
-            st.session_state["tri_groups"] = tri_groups
-            st.plotly_chart(plot_microplate(edited,tri_groups), use_container_width=True)
+                if tri_groups:
+                    n_g = len(tri_groups)
+                    n_w = sum(len(v) for v in tri_groups.values())
+                    ibox(f"<b>{n_g} grupos de triplicados</b> ({n_w} pocillos).")
+                    with st.expander("Detalle de triplicados"):
+                        tri_rows = []
+                        for col_k, rlist in sorted(tri_groups.items(),
+                                                   key=lambda x: int(x[0])):
+                            sub  = edited[edited["ROI"].isin(rlist)]
+                            tipo = sub["Tipo"].iloc[0]   if not sub.empty else ""
+                            conc = sub["Concentracion"].iloc[0] if not sub.empty else 0
+                            tri_rows.append({
+                                "Columna": col_k,
+                                "Pocillos": ", ".join(rlist),
+                                "N": len(rlist), "Tipo": tipo,
+                                "Conc": round(float(conc), 4)})
+                        st.dataframe(pd.DataFrame(tri_rows),
+                                     use_container_width=True, hide_index=True)
+            else:
+                # Para viales: imagen anotada reactiva
+                type_map = dict(zip(edited["ROI"], edited["Tipo"]))
+                ann = draw_rois(img, rois, type_map)
+                st.session_state["annotated_img"] = ann
+                st.image(ann,
+                         caption="Imagen con tipos asignados — se actualiza al editar",
+                         use_container_width=True)
 
-            if tri_groups:
-                n_g = len(tri_groups)
-                n_w = sum(len(v) for v in tri_groups.values())
-                ibox(f"<b>{n_g} grupos de triplicados detectados</b> ({n_w} pocillos). "
-                     f"Pocillos sin tipo asignado se excluyen del analisis.")
-                with st.expander("Detalle de grupos de triplicados"):
-                    tri_rows = []
-                    for col, rlist in sorted(tri_groups.items(), key=lambda x:int(x[0])):
-                        sub = edited[edited["ROI"].isin(rlist)]
-                        t   = sub["Tipo"].iloc[0] if not sub.empty else ""
-                        conc= sub["Concentracion"].iloc[0] if not sub.empty else 0
-                        tri_rows.append({"Columna":col,
-                                          "Pocillos":", ".join(rlist),
-                                          "N":len(rlist),
-                                          "Tipo":t,
-                                          "Conc":round(float(conc),4)})
-                    st.dataframe(pd.DataFrame(tri_rows),use_container_width=True,hide_index=True)
+        # ── Imagen anotada (solo microplaca, debajo de la tabla) ───
+        if is_plate:
+            type_map = dict(zip(edited["ROI"], edited["Tipo"]))
+            ann = draw_rois(img, rois, type_map)
+            st.session_state["annotated_img"] = ann
 
         footer()
 
