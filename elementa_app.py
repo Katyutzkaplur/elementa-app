@@ -17,6 +17,31 @@ from io import BytesIO
 import base64, datetime, math, hashlib, warnings, tempfile, os
 warnings.filterwarnings("ignore")
 
+# ─── Zona horaria: America/Mexico_City (GMT-6 / CDT GMT-5 en verano) ─────────
+def _tz_cdmx():
+    """Retorna objeto timezone para America/Mexico_City. Compatible Python 3.9+."""
+    try:
+        from zoneinfo import ZoneInfo          # Python 3.9+ / tzdata
+        return ZoneInfo("America/Mexico_City")
+    except Exception:
+        pass
+    try:
+        import pytz                            # fallback
+        return pytz.timezone("America/Mexico_City")
+    except Exception:
+        pass
+    return datetime.timezone(datetime.timedelta(hours=-6))  # offset fijo
+
+def now_cdmx() -> datetime.datetime:
+    """Datetime actual en zona horaria de la Ciudad de México."""
+    return datetime.datetime.now(_tz_cdmx())
+
+def fmt_cdmx(dt: datetime.datetime | None = None) -> str:
+    """Formatea datetime para reportes. Ej: 2026-05-19  21:43:12  (GMT-0600)"""
+    if dt is None:
+        dt = now_cdmx()
+    return dt.strftime("%Y-%m-%d  %H:%M:%S  (GMT%z)")
+
 # ═══════════════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN
 # ═══════════════════════════════════════════════════════════════════════
@@ -223,6 +248,201 @@ def generate_rois_microplate(x0,y0,w,h,dx,dy,rows=8,cols=12):
     rl="ABCDEFGH"
     return [{"x":int(x0+c*dx),"y":int(y0+r*dy),"w":int(w),"h":int(h),"label":f"{rl[r]}{c+1}"}
             for r in range(rows) for c in range(cols)]
+
+# ═══════════════════════════════════════════════════════════════════════
+#  DETECCIÓN AUTOMÁTICA DE ROIs
+# ═══════════════════════════════════════════════════════════════════════
+
+def sort_wells_to_grid(circles_arr: np.ndarray) -> list[dict]:
+    """
+    Ordena círculos detectados en una cuadrícula A1-H12.
+    Agrupa por fila usando clustering por coordenada Y.
+    """
+    if len(circles_arr) == 0:
+        return []
+    row_labels = list("ABCDEFGH")
+    # Ordenar por Y (arriba a abajo)
+    sorted_c = sorted(circles_arr.tolist(), key=lambda c: c[1])
+    # Radio medio para umbral de separación de filas
+    mean_r = float(np.mean([c[2] for c in sorted_c]))
+    row_gap = max(mean_r * 1.4, 8.0)
+    # Agrupar en filas por brecha de coordenada Y
+    rows_grouped: list[list] = [[sorted_c[0]]]
+    for c in sorted_c[1:]:
+        if c[1] - rows_grouped[-1][-1][1] > row_gap:
+            rows_grouped.append([c])
+        else:
+            rows_grouped[-1].append(c)
+    # Construir ROIs ordenadas por fila (A→H) y columna (1→12)
+    rois = []
+    for r_idx, row in enumerate(rows_grouped):
+        if r_idx >= len(row_labels):
+            break
+        for c_idx, (cx, cy, cr) in enumerate(sorted(row, key=lambda c: c[0])):
+            rois.append({
+                "x": max(0, int(cx - cr)),
+                "y": max(0, int(cy - cr)),
+                "w": int(cr * 2), "h": int(cr * 2),
+                "label": f"{row_labels[r_idx]}{c_idx+1}",
+                "_cx": int(cx), "_cy": int(cy), "_cr": int(cr),
+            })
+    return rois
+
+
+def detect_microplate_rois(img: np.ndarray,
+                            min_r: int = 8, max_r: int = 40,
+                            sensitivity: int = 30,
+                            min_dist: int = 20) -> list[dict]:
+    """
+    Detecta pocillos circulares en imagen de microplaca usando HoughCircles.
+
+    Parámetros
+    ----------
+    img         : imagen RGB
+    min_r       : radio mínimo de pocillo (px)
+    max_r       : radio máximo de pocillo (px)
+    sensitivity : umbral acumulador Hough — menor valor = más círculos (10–80)
+    min_dist    : separación mínima entre centros (px)
+
+    Retorna lista de dicts ROI con etiquetas A1-H12.
+    """
+    gray    = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    # Mejorar contraste con CLAHE antes de Hough
+    clahe   = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    enhanced= clahe.apply(gray)
+    blurred = cv2.GaussianBlur(enhanced, (9, 9), 2)
+
+    circles = cv2.HoughCircles(
+        blurred,
+        cv2.HOUGH_GRADIENT,
+        dp=1.2,
+        minDist=int(min_dist),
+        param1=max(30, int(sensitivity * 1.8)),  # Umbral Canny
+        param2=int(sensitivity),                  # Umbral acumulador
+        minRadius=int(min_r),
+        maxRadius=int(max_r),
+    )
+    if circles is None:
+        return []
+    circles = np.round(circles[0]).astype(int)
+    return sort_wells_to_grid(circles)
+
+
+def detect_vial_rois(img: np.ndarray,
+                     min_area: int = 400,
+                     max_area_ratio: float = 0.20,
+                     sensitivity: int = 50) -> list[dict]:
+    """
+    Detecta viales/tubos mediante umbral adaptativo y contornos.
+
+    Parámetros
+    ----------
+    img             : imagen RGB
+    min_area        : área mínima de contorno (px²)
+    max_area_ratio  : fracción máxima del área de imagen
+    sensitivity     : 10–90, menor = más estricto
+
+    Retorna lista de ROIs ordenada de izquierda a derecha.
+    """
+    H, W    = img.shape[:2]
+    max_area= int(H * W * max_area_ratio)
+    gray    = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+    # Umbral adaptativo
+    c_val   = max(2, int((100 - sensitivity) / 8))
+    thresh  = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 11, c_val)
+
+    # Morfología para cerrar huecos
+    kernel  = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    thresh  = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+    thresh  = cv2.morphologyEx(thresh, cv2.MORPH_OPEN,  kernel, iterations=1)
+
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    rois = []
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if not (min_area < area < max_area):
+            continue
+        x, y, w, h = cv2.boundingRect(cnt)
+        aspect = w / h if h > 0 else 0
+        if not (0.15 < aspect < 6.0):      # Descartar formas extremas
+            continue
+        # Compacidad: relación entre área del contorno y bounding box
+        compactness = area / (w * h) if w * h > 0 else 0
+        if compactness < 0.25:             # Descartar ruido disperso
+            continue
+        rois.append({"x": x, "y": y, "w": w, "h": h, "label": "", "_area": area})
+
+    # Ordenar izquierda→derecha agrupando por banda horizontal
+    rois.sort(key=lambda r: (r["y"] // max(1, H // 6), r["x"]))
+    for i, roi in enumerate(rois):
+        roi["label"] = f"ROI {i + 1}"
+    return rois
+
+
+def validate_rois(rois: list[dict], img_shape: tuple,
+                  min_px: int = 4, max_fraction: float = 0.45) -> list[dict]:
+    """
+    Filtra ROIs fuera de límites o con tamaño inválido.
+    Elimina también duplicados por solapamiento excesivo (IoU > 0.5).
+    """
+    H, W = img_shape[:2]
+    valid = []
+    for roi in rois:
+        w, h = roi["w"], roi["h"]
+        x, y = roi["x"], roi["y"]
+        if w < min_px or h < min_px:
+            continue
+        if w > W * max_fraction or h > H * max_fraction:
+            continue
+        # Clamp a bordes de imagen
+        x = max(0, min(x, W - 1))
+        y = max(0, min(y, H - 1))
+        w = min(w, W - x)
+        h = min(h, H - y)
+        if w < min_px or h < min_px:
+            continue
+        valid.append({**roi, "x": x, "y": y, "w": w, "h": h})
+
+    # Eliminar solapamiento (NMS simple)
+    kept = []
+    for roi in valid:
+        overlap = False
+        for k in kept:
+            # Intersección sobre unión simplificada
+            ix1 = max(roi["x"], k["x"]); iy1 = max(roi["y"], k["y"])
+            ix2 = min(roi["x"]+roi["w"], k["x"]+k["w"])
+            iy2 = min(roi["y"]+roi["h"], k["y"]+k["h"])
+            if ix2 > ix1 and iy2 > iy1:
+                inter = (ix2-ix1)*(iy2-iy1)
+                union = roi["w"]*roi["h"] + k["w"]*k["h"] - inter
+                if union > 0 and inter/union > 0.50:
+                    overlap = True; break
+        if not overlap:
+            kept.append(roi)
+    return kept
+
+
+def draw_detected_preview(img: np.ndarray, rois: list[dict],
+                           color_ok=(0, 200, 100), color_label=(220, 220, 220)) -> np.ndarray:
+    """
+    Preview especial para ROIs auto-detectadas: círculo + etiqueta.
+    Para círculos detectados usa el centro y radio almacenados.
+    """
+    out = img.copy()
+    for roi in rois:
+        cx = roi.get("_cx", roi["x"] + roi["w"] // 2)
+        cy = roi.get("_cy", roi["y"] + roi["h"] // 2)
+        cr = roi.get("_cr", min(roi["w"], roi["h"]) // 2)
+        bgr = (color_ok[2], color_ok[1], color_ok[0])
+        cv2.circle(out, (cx, cy), cr, bgr, 2)
+        cv2.circle(out, (cx, cy), 2, bgr, -1)
+        cv2.putText(out, roi["label"], (roi["x"], max(roi["y"] - 3, 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.38,
+                    (color_label[2], color_label[1], color_label[0]), 1, cv2.LINE_AA)
+    return out
 
 def roi_fingerprint(rois):
     return hashlib.md5("|".join(r["label"] for r in rois).encode()).hexdigest()[:12]
@@ -650,7 +870,7 @@ def generate_pdf(analyte, method, df_rgb, df_results, cal,
         ]))
         return t
 
-    now   = datetime.datetime.now().strftime("%d/%m/%Y  %H:%M")
+    now   = fmt_cdmx()  # Zona horaria America/Mexico_City (GMT-6)
     story = []
 
     # ── Portada ──────────────────────────────────────────────────────
@@ -793,12 +1013,21 @@ def generate_pdf(analyte, method, df_rgb, df_results, cal,
 
 def init_session():
     defs = dict(
+        # Imagen y ROIs
         image=None, rois=[], freeze_rois=False, device_type="Viales lineales",
+        roi_mode="Manual",          # "Manual" | "Automatico"
+        rois_preview=[],            # ROIs detectadas (pendientes de aceptar)
+        roi_detection_ran=False,
+        # Asignación
         assignment_df=None, _asgn_fp="",
-        blank_label=None, df_rgb=None, df_norm=None, df_abs=None, df_merged=None,
+        blank_label=None,
+        # Procesamiento
+        df_rgb=None, df_norm=None, df_abs=None, df_merged=None,
+        # Calibración
         cal_result=None, best_ch="G_norm", all_ch_res={}, tri_groups={}, tri_df=None,
         df_results=None, annotated_img=None,
         cal_fig=None, res_fig=None, sa_fig=None, sa_result=None,
+        # Datos crudos de calibración para PDF
         cal_concs=None, cal_sigs=None, cal_unit="mg/L", cal_analyte="", cal_ch="",
         cal_png=None,
     )
@@ -870,85 +1099,237 @@ if pagina == "Analisis":
     # ────────────────────────────────────────────────────────
     with tab_cap:
         slbl("Paso 1 — Cargar imagen")
-        c1,c2 = st.columns(2)
+        c1, c2 = st.columns(2)
         with c1:
-            uf = st.file_uploader("Subir imagen (JPG/PNG)",type=["jpg","jpeg","png"],
+            uf = st.file_uploader("Subir imagen (JPG/PNG)", type=["jpg","jpeg","png"],
                                    label_visibility="collapsed")
-            if uf: st.session_state["image"] = load_image(uf)
+            if uf:
+                loaded = load_image(uf)
+                if loaded is not st.session_state.get("image"):
+                    st.session_state["image"] = loaded
+                    st.session_state["rois"]  = []     # Nueva imagen = limpiar ROIs
+                    st.session_state["_asgn_fp"] = ""
         with c2:
-            cam = st.camera_input("Capturar con camara",label_visibility="collapsed")
-            if cam: st.session_state["image"] = load_image(cam)
+            cam = st.camera_input("Capturar con camara", label_visibility="collapsed")
+            if cam:
+                loaded = load_image(cam)
+                st.session_state["image"] = loaded
+                st.session_state["rois"]  = []
+                st.session_state["_asgn_fp"] = ""
 
         if st.session_state["image"] is None:
             ibox("Cargue o capture una imagen para comenzar.")
             footer(); st.stop()
 
-        img  = st.session_state["image"]
-        H,W  = img.shape[:2]
+        img = st.session_state["image"]
+        H, W = img.shape[:2]
 
-        st.markdown("<hr style='border-color:#1E293B;margin:16px 0;'>",unsafe_allow_html=True)
+        st.markdown("<hr style='border-color:#1E293B;margin:16px 0;'>",
+                    unsafe_allow_html=True)
         slbl("Paso 2 — Definir regiones de interes (ROIs)")
 
-        # ── Layout lado a lado ──────────────────────────────
-        ctrl_col, img_col = st.columns([1,1], gap="large")
+        # ── Modo: Manual vs Automático ──────────────────────
+        roi_mode = st.radio(
+            "Modo de deteccion",
+            ["Manual", "Deteccion automatica"],
+            horizontal=True,
+            key="roi_mode_radio",
+            help="Manual: sliders de posicion. Automatico: OpenCV detecta pocillos/viales.")
+        st.session_state["roi_mode"] = roi_mode
 
-        with ctrl_col:
-            dev = st.selectbox("Tipo de dispositivo",
-                               ["Viales lineales","Microplaca de 96 pocillos","Personalizado"],
-                               key="device_sel")
-            st.session_state["device_type"] = dev
+        ctrl_col, img_col = st.columns([1, 1], gap="large")
 
-            freeze = st.toggle("Bloquear ROIs", value=st.session_state["freeze_rois"], key="freeze_tog")
-            st.session_state["freeze_rois"] = freeze
+        # ══════════════════════════════════════════════════
+        #  MODO AUTOMÁTICO
+        # ══════════════════════════════════════════════════
+        if roi_mode == "Deteccion automatica":
+            with ctrl_col:
+                dev_auto = st.selectbox(
+                    "Tipo de dispositivo",
+                    ["Microplaca de 96 pocillos", "Viales lineales"],
+                    key="dev_auto_sel")
+                st.session_state["device_type"] = dev_auto
 
-            rois = []
-            if not freeze:
-                if dev == "Viales lineales":
-                    n   = st.number_input("N de viales",2,24,6,1,key="r_n")
-                    x0  = st.slider("X inicial",0,W-1,int(W*.05),key="r_x0")
-                    y0  = st.slider("Y inicial",0,H-1,int(H*.25),key="r_y0")
-                    rw  = st.slider("Ancho ROI",5,200,40,key="r_w")
-                    rh  = st.slider("Alto ROI", 5,300,60,key="r_h")
-                    dx  = st.slider("Espaciado X",0,300,int(W*.08),key="r_dx")
-                    dy  = st.slider("Espaciado Y",0,200,0,key="r_dy")
-                    rois= generate_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
+                with st.expander("Parametros de deteccion", expanded=True):
+                    if dev_auto == "Microplaca de 96 pocillos":
+                        sens    = st.slider("Sensibilidad Hough (menor = mas circulos)",
+                                            10, 70, 30, key="auto_sens",
+                                            help="param2 del algoritmo Hough. "
+                                                 "Bajar si no detecta todos los pocillos.")
+                        min_r   = st.slider("Radio minimo (px)", 3, 60, 8,  key="auto_minr")
+                        max_r   = st.slider("Radio maximo (px)", 8, 120, 40, key="auto_maxr")
+                        min_dist= st.slider("Separacion minima entre centros (px)",
+                                            5, 100, 20, key="auto_mdist")
+                        st.markdown(
+                            f"<p style='color:{MUTED};font-size:.72rem;'>Ajuste los parametros "
+                            f"y haga clic en <b>Detectar</b>. La imagen de la derecha se "
+                            f"actualizara al aceptar los resultados.</p>",
+                            unsafe_allow_html=True)
+                    else:
+                        min_area_auto = st.slider("Area minima de contorno (px²)",
+                                                  100, 5000, 400, key="auto_minarea")
+                        max_area_pct  = st.slider("Area maxima (% imagen)",
+                                                  1, 40, 20, key="auto_maxarea")
+                        vial_sens     = st.slider("Sensibilidad de umbral",
+                                                  10, 90, 50, key="auto_vsens",
+                                                  help="Mayor = detecta contornos mas tenues.")
 
-                elif dev == "Microplaca de 96 pocillos":
-                    x0  = st.slider("X inicial",0,W-1,int(W*.05),key="p_x0")
-                    y0  = st.slider("Y inicial",0,H-1,int(H*.05),key="p_y0")
-                    rw  = st.slider("Ancho ROI",4,80,20,key="p_w")
-                    rh  = st.slider("Alto ROI", 4,80,20,key="p_h")
-                    dx  = st.slider("Espaciado X",10,200,50,key="p_dx")
-                    dy  = st.slider("Espaciado Y",10,200,50,key="p_dy")
-                    rws = st.number_input("Filas",   1,8, 8,1,key="p_rows")
-                    cls = st.number_input("Columnas",1,12,12,1,key="p_cols")
-                    rois= generate_rois_microplate(x0,y0,rw,rh,dx,dy,int(rws),int(cls))
+                if st.button("Detectar ROIs", key="btn_detect"):
+                    with st.spinner("Procesando con OpenCV..."):
+                        if dev_auto == "Microplaca de 96 pocillos":
+                            rois_det = detect_microplate_rois(
+                                img, min_r=min_r, max_r=max_r,
+                                sensitivity=sens, min_dist=min_dist)
+                        else:
+                            rois_det = detect_vial_rois(
+                                img,
+                                min_area=min_area_auto,
+                                max_area_ratio=max_area_pct/100,
+                                sensitivity=vial_sens)
+
+                        rois_det = validate_rois(rois_det, img.shape)
+                        st.session_state["rois_preview"] = rois_det
+                        st.session_state["roi_detection_ran"] = True
+
+                # Resultado de detección
+                rois_prev = st.session_state.get("rois_preview", [])
+                if st.session_state.get("roi_detection_ran"):
+                    if rois_prev:
+                        okbox(f"Se detectaron <b>{len(rois_prev)}</b> ROIs. "
+                              f"Revise la imagen y haga clic en <b>Aceptar</b>.")
+                        st.dataframe(
+                            pd.DataFrame([{"ROI": r["label"],
+                                           "X": r["x"], "Y": r["y"],
+                                           "W": r["w"], "H": r["h"]}
+                                          for r in rois_prev]),
+                            use_container_width=True, hide_index=True, height=180)
+
+                        if st.button("Aceptar ROIs detectadas", key="btn_accept"):
+                            st.session_state["rois"]            = rois_prev
+                            st.session_state["freeze_rois"]     = True
+                            st.session_state["_asgn_fp"]        = ""
+                            st.session_state["rois_preview"]    = []
+                            st.session_state["roi_detection_ran"] = False
+                            okbox(f"{len(rois_prev)} ROIs aceptadas y bloqueadas.")
+                    else:
+                        wbox("No se detectaron ROIs. Ajuste los parametros "
+                             "(reduzca la Sensibilidad o cambie el radio) y vuelva a intentar.")
+
+                # Opcion para desbloquear
+                if st.session_state.get("freeze_rois") and st.session_state.get("rois"):
+                    if st.button("Desbloquear y re-detectar", key="btn_unlock"):
+                        st.session_state["freeze_rois"] = False
+                        st.session_state["rois_preview"] = []
+                        st.session_state["roi_detection_ran"] = False
+
+            with img_col:
+                rois_preview = st.session_state.get("rois_preview", [])
+                rois_accepted= st.session_state.get("rois", [])
+                if rois_preview:
+                    prev_img = draw_detected_preview(img, rois_preview)
+                    st.image(prev_img,
+                             caption=f"Preview: {len(rois_preview)} ROIs detectadas (pendientes de aceptar)",
+                             use_container_width=True)
+                elif rois_accepted and st.session_state.get("freeze_rois"):
+                    adf2 = st.session_state.get("assignment_df")
+                    tm2  = dict(zip(adf2["ROI"], adf2["Tipo"])) if adf2 is not None else {}
+                    ann2 = draw_rois(img, rois_accepted, tm2)
+                    st.session_state["annotated_img"] = ann2
+                    st.image(ann2,
+                             caption=f"ROIs aceptadas ({len(rois_accepted)} regiones)",
+                             use_container_width=True)
                 else:
-                    n   = st.number_input("N de ROIs",2,50,6,1,key="c_n")
-                    x0  = st.slider("X inicial",0,W-1,int(W*.05),key="c_x0")
-                    y0  = st.slider("Y inicial",0,H-1,int(H*.1),key="c_y0")
-                    rw  = st.slider("Ancho ROI",5,200,30,key="c_w")
-                    rh  = st.slider("Alto ROI", 5,200,30,key="c_h")
-                    dx  = st.slider("Espaciado X",0,300,int(W*.08),key="c_dx")
-                    dy  = st.slider("Espaciado Y",0,300,int(H*.08),key="c_dy")
-                    rois= generate_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
+                    st.image(img, caption="Imagen original — ejecute la deteccion",
+                             use_container_width=True)
 
-                st.session_state["rois"] = rois
-            else:
-                rois = st.session_state.get("rois",[])
-                if rois: okbox(f"ROIs bloqueadas — {len(rois)} regiones definidas.")
-                else: wbox("No hay ROIs definidas aun.")
+        # ══════════════════════════════════════════════════
+        #  MODO MANUAL  (st.form para estabilidad total)
+        # ══════════════════════════════════════════════════
+        else:
+            with ctrl_col:
+                freeze = st.toggle(
+                    "Bloquear ROIs",
+                    value=st.session_state["freeze_rois"],
+                    key="freeze_tog")
+                st.session_state["freeze_rois"] = freeze
 
-        with img_col:
-            if rois:
-                ensure_assignment_df(rois)
-                adf = st.session_state["assignment_df"]
-                type_map = dict(zip(adf["ROI"],adf["Tipo"])) if adf is not None else {}
-                ann = draw_rois(img, rois, type_map)
-                st.session_state["annotated_img"] = ann
-                st.image(ann, caption="Vista previa — ROIs en tiempo real", use_container_width=True)
-            else:
-                st.image(img, caption="Imagen original", use_container_width=True)
+                if freeze:
+                    rois = st.session_state.get("rois", [])
+                    if rois:
+                        okbox(f"ROIs bloqueadas — {len(rois)} regiones. "
+                              f"Desactive el bloqueo para ajustar.")
+                    else:
+                        wbox("No hay ROIs bloqueadas. Desactive el bloqueo y configure.")
+                else:
+                    # ── st.form: los sliders NO generan rerenders ──
+                    # El script solo recalcula ROIs al hacer clic en "Aplicar"
+                    ibox("Configure los parametros y haga clic en <b>Aplicar ROIs</b>. "
+                         "La imagen se actualizara solo al aplicar.")
+
+                    dev = st.selectbox(
+                        "Tipo de dispositivo",
+                        ["Viales lineales", "Microplaca de 96 pocillos", "Personalizado"],
+                        key="device_sel")
+                    st.session_state["device_type"] = dev
+
+                    with st.form("roi_manual_form"):
+                        if dev == "Viales lineales":
+                            n  = st.number_input("N de viales", 2, 24, 6, 1)
+                            x0 = st.slider("X inicial (px)", 0, W-1, int(W*.05))
+                            y0 = st.slider("Y inicial (px)", 0, H-1, int(H*.25))
+                            rw = st.slider("Ancho ROI (px)", 5, 200, 40)
+                            rh = st.slider("Alto ROI (px)", 5, 300, 60)
+                            dx = st.slider("Espaciado X (px)", 0, 300, int(W*.08))
+                            dy = st.slider("Espaciado Y (px)", 0, 200, 0)
+                        elif dev == "Microplaca de 96 pocillos":
+                            x0  = st.slider("X inicial (px)", 0, W-1, int(W*.05))
+                            y0  = st.slider("Y inicial (px)", 0, H-1, int(H*.05))
+                            rw  = st.slider("Ancho ROI (px)", 4, 80, 20)
+                            rh  = st.slider("Alto ROI (px)", 4, 80, 20)
+                            dx  = st.slider("Espaciado X (px)", 10, 200, 50)
+                            dy  = st.slider("Espaciado Y (px)", 10, 200, 50)
+                            rws = st.number_input("Filas", 1, 8, 8, 1)
+                            cls = st.number_input("Columnas", 1, 12, 12, 1)
+                        else:
+                            n  = st.number_input("N de ROIs", 2, 50, 6, 1)
+                            x0 = st.slider("X inicial (px)", 0, W-1, int(W*.05))
+                            y0 = st.slider("Y inicial (px)", 0, H-1, int(H*.1))
+                            rw = st.slider("Ancho ROI (px)", 5, 200, 30)
+                            rh = st.slider("Alto ROI (px)", 5, 200, 30)
+                            dx = st.slider("Espaciado X (px)", 0, 300, int(W*.08))
+                            dy = st.slider("Espaciado Y (px)", 0, 300, int(H*.08))
+
+                        submitted = st.form_submit_button(
+                            "Aplicar ROIs",
+                            use_container_width=True)
+
+                    # Solo recalcula ROIs cuando se envia el formulario
+                    if submitted:
+                        if dev == "Viales lineales" or dev == "Personalizado":
+                            new_rois = generate_rois_linear(x0, y0, rw, rh, int(n), dx, dy)
+                        else:
+                            new_rois = generate_rois_microplate(
+                                x0, y0, rw, rh, dx, dy, int(rws), int(cls))
+                        st.session_state["rois"] = new_rois
+                        # Resetear fingerprint solo si estructura cambio
+                        if roi_fingerprint(new_rois) != st.session_state.get("_asgn_fp",""):
+                            st.session_state["_asgn_fp"] = ""
+
+            with img_col:
+                rois = st.session_state.get("rois", [])
+                if rois:
+                    ensure_assignment_df(rois)
+                    adf  = st.session_state["assignment_df"]
+                    tm   = dict(zip(adf["ROI"], adf["Tipo"])) if adf is not None else {}
+                    ann  = draw_rois(img, rois, tm)
+                    st.session_state["annotated_img"] = ann
+                    cap  = (f"ROIs actuales: {len(rois)} regiones" +
+                            (" (bloqueadas)" if freeze else " — haga clic en 'Aplicar ROIs' para actualizar"))
+                    st.image(ann, caption=cap, use_container_width=True)
+                else:
+                    st.image(img,
+                             caption="Configure los parametros y haga clic en 'Aplicar ROIs'",
+                             use_container_width=True)
 
         footer()
 
@@ -1317,7 +1698,7 @@ if pagina == "Analisis":
                     cal_png_bytes=cal_png,
                     unit=unit)
                 b64  = base64.b64encode(pdf_b).decode()
-                fname= f"Elementa_{an}_{datetime.datetime.now():%Y%m%d_%H%M}.pdf"
+                fname= f"Elementa_{an}_{now_cdmx():%Y%m%d_%H%M}.pdf"
                 href = (f'<a href="data:application/pdf;base64,{b64}" download="{fname}" '
                         f'style="background:{ACCENT};color:white;padding:10px 24px;'
                         f'border-radius:6px;text-decoration:none;font-weight:700;'
