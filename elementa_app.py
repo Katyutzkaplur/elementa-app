@@ -80,7 +80,7 @@ NORMATIVE_LIMITS = {
 
 STAT_EXPL = {
     "R2":       "Coeficiente de determinación. Proporción de la varianza de la señal explicada por la concentración. R2 >= 0.999 = linealidad excelente para cuantificación analítica.",
-    "slope":    "Pendiente (m). Sensibilidad analítica del método: cambio de señal por unidad de concentración. La pendiente negativa es válida en ensayos donde el analito reduce el color (DPPH, ABTS).,
+    "slope":    "Pendiente (m). Sensibilidad analítica del método: cambio de señal por unidad de concentración. La pendiente negativa es válida en ensayos donde el analito reduce el color (DPPH, ABTS).",
     "intercept": "Intercepto (b). Señal teórica a concentración cero. Idealmente cercano al valor del blanco de reactivos.",
     "se":       "Error estándar de la pendiente (Sb). Incertidumbre en la estimación de la sensibilidad. Sb/|m| menor a 1% indica excelente precisión.",
     "LOD":      "Límite de detección (3.3 sigma/|m|). Concentración mínima distinguible del ruido con 99% de confianza. Resultados < LOD se reportan como no detectados.",
