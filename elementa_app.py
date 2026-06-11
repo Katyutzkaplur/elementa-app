@@ -68,7 +68,7 @@ TIPO_SHORT = {
     "Control":"CTRL","Adición estándar":"ADD","Sin asignar":"--",
 }
 TIPOS    = ["Sin asignar","Blanco","Estandar","Muestra","Control","Adición estándar"]
-ANALITOS = ["Cr(VI)","Pb","Cd","Cr total","DPPH","ABTS","FRAP","Fenoles totales","Otro"]
+ANALITOS = ["Cr(VI)","Pb","Cd","Cr total","DPPH","ABTS","FRAP","Nitrógeno amoniacal","Fenoles totales","Otro"]
 UNIDADES = ["mg/L","µg/L","ppm","µM","mM","%","µg/mL","Otro"]
 
 NORMATIVE_LIMITS = {
@@ -92,7 +92,7 @@ def interpret_r2(r2):
     if r2 >= 0.999: return "Linealidad excelente", SUCCESS
     if r2 >= 0.995: return "Muy buena", SUCCESS
     if r2 >= 0.990: return "Ligera dispersion experimental", "#F59E0B"
-    return "Revisar calibracion", DANGER
+    return "Revisar calibración", DANGER
 
 def interpret_slope(m):
     if m > 0:
