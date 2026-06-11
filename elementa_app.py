@@ -2,8 +2,8 @@
 Elementa — Sistema Analitico Colorimetrico Digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
-Software cientifico para colorimetria digital basada en imagenes RGB.
-No sustituye metodos instrumentales certificados.
+Software científico para colorimetría digital basada en imágenes RGB.
+No sustituye métodos instrumentales certificados.
 """
 
 import streamlit as st
@@ -52,7 +52,7 @@ TIPO_COLORS = {
     "Estandar":         "#059669",
     "Muestra":          "#2563EB",
     "Control":          "#7C3AED",
-    "Adicion estandar": "#DB2777",
+    "Adición estándar": "#DB2777",
     "Sin asignar":      "#1E293B",
 }
 TIPO_BGR = {
@@ -60,16 +60,16 @@ TIPO_BGR = {
     "Estandar":         (5,  150, 105),
     "Muestra":          (37,  99, 235),
     "Control":          (124, 58, 237),
-    "Adicion estandar": (219, 39, 119),
+    "Adición estándar": (219, 39, 119),
     "Sin asignar":      (30,  41,  59),
 }
 TIPO_SHORT = {
     "Blanco":"BLANK","Estandar":"STD","Muestra":"SMP",
-    "Control":"CTRL","Adicion estandar":"ADD","Sin asignar":"--",
+    "Control":"CTRL","Adición estándar":"ADD","Sin asignar":"--",
 }
-TIPOS    = ["Sin asignar","Blanco","Estandar","Muestra","Control","Adicion estandar"]
+TIPOS    = ["Sin asignar","Blanco","Estandar","Muestra","Control","Adición estándar"]
 ANALITOS = ["Cr(VI)","Pb","Cd","Cr total","DPPH","ABTS","FRAP","Fenoles totales","Otro"]
-UNIDADES = ["mg/L","ug/L","ppm","uM","mM","%","ug/mL","Otro"]
+UNIDADES = ["mg/L","µg/L","ppm","µM","mM","%","µg/mL","Otro"]
 
 NORMATIVE_LIMITS = {
     "Pb":       {"NOM-127-SSA1-2021 agua potable":0.01,"NOM-001-SEMARNAT-2021 descarga A":0.2,"NOM-001-SEMARNAT-2021 descarga B":1.0},
@@ -79,13 +79,13 @@ NORMATIVE_LIMITS = {
 }
 
 STAT_EXPL = {
-    "R2":       "Coeficiente de determinacion. Proporcion de la varianza de la señal explicada por la concentracion. R2 >= 0.999 = linealidad excelente para cuantificacion analitica.",
-    "slope":    "Pendiente (m). Sensibilidad analitica del metodo: cambio de señal por unidad de concentracion. Pendiente negativa es valida en ensayos donde el analito reduce el color (DPPH, ABTS).",
-    "intercept":"Intercepto (b). Señal teorica a concentracion cero. Idealmente cercano al valor del blanco de reactivos.",
-    "se":       "Error estandar de la pendiente (Sb). Incertidumbre en la estimacion de la sensibilidad. Sb/|m| menor a 1% indica excelente precision.",
-    "LOD":      "Limite de Deteccion (3.3 sigma/|m|). Concentracion minima distinguible del ruido con 99% de confianza. Resultados < LOD se reportan como no detectado.",
-    "LOQ":      "Limite de Cuantificacion (10 sigma/|m|). Concentracion minima cuantificable con CV < 10%. Resultados entre LOD y LOQ son semicuantitativos.",
-    "CV":       "Coeficiente de Variacion (SD/media × 100%). Medida de precision relativa. CV < 5% = excelente; 5-10% = aceptable; > 10% = revisar tecnica.",
+    "R2":       "Coeficiente de determinación. Proporción de la varianza de la señal explicada por la concentración. R2 >= 0.999 = linealidad excelente para cuantificación analítica.",
+    "slope":    "Pendiente (m). Sensibilidad analítica del método: cambio de señal por unidad de concentración. La pendiente negativa es válida en ensayos donde el analito reduce el color (DPPH, ABTS).
+    "intercept": "Intercepto (b). Señal teórica a concentración cero. Idealmente cercano al valor del blanco de reactivos.",
+    "se":       "Error estándar de la pendiente (Sb). Incertidumbre en la estimación de la sensibilidad. Sb/|m| menor a 1% indica excelente precisión.",
+    "LOD":      "Límite de detección (3.3 sigma/|m|). Concentración mínima distinguible del ruido con 99% de confianza. Resultados < LOD se reportan como no detectados.",
+    "LOQ":      "Límite de cuantificación (10 sigma/|m|). Concentración mínima cuantificable con CV < 10%. Resultados entre LOD y LOQ son semicuantitativos.",
+    "CV":       "Coeficiente de Variación (SD/media × 100%). Medida de precisión relativa. CV < 5% = excelente; 5-10% = aceptable; > 10% = revisar técnica.",
 }
 
 def interpret_r2(r2):
@@ -1504,8 +1504,8 @@ elif pagina=="Tutorial":
 | **LOQ** | Minimo cuantificable | Muestras entre LOD y LOQ son semicuantitativas |
 | **CV%** | Reproducibilidad triplicados | < 5% excelente; < 10% aceptable |
 
-**Interpretacion de pendiente negativa:**
-Es completamente valida en metodos como DPPH, ABTS y nitrogen amoniacal (canal azul). El sistema lo indica automaticamente y calcula la concentracion correctamente usando x = (A - b) / m.
+**Interpretación de pendiente negativa:**
+Es completamente válida en métodos como DPPH y ABTS (canal azul). El sistema lo indica automáticamente y calcula la concentración correctamente usando x = (A - b) / m.
         """),
     ]
     for title, content in steps:
