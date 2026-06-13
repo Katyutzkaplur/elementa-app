@@ -337,6 +337,33 @@ def extract_rgb_norm(img, rois, circular=False, diam_map=None):
                      "B_norm":round(b_mean/tot*100,3)})
     return pd.DataFrame(rows)
 
+def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
+    """
+    Dibuja ROIs sobre la imagen.
+    circular=True → contorno circular con máscara interna semitransparente.
+    """
+    out = img.copy()
+    for roi in rois:
+        tipo = (type_map or {}).get(roi["label"], "Sin asignar")
+        rgb  = TIPO_BGR.get(tipo, (30, 41, 59))
+        bgr  = (rgb[2], rgb[1], rgb[0])
+        x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
+        if circular:
+            diam = (diam_map or {}).get(roi["label"], min(w, h))
+            cx, cy, r = x + w//2, y + h//2, diam//2
+            cv2.circle(out, (cx, cy), r, bgr, 2)
+            cv2.circle(out, (cx, cy), 2, bgr, -1)
+        else:
+            cv2.rectangle(out, (x, y), (x+w, y+h), bgr, 2)
+        short = TIPO_SHORT.get(tipo, "")
+        cv2.putText(out, roi["label"], (x, max(y-3, 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, bgr, 1, cv2.LINE_AA)
+        if short and short != "--" and w >= 25 and h >= 16:
+            cx2, cy2 = x + w//2, y + h//2
+            cv2.putText(out, short, (cx2-12, cy2+4),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.32, bgr, 1, cv2.LINE_AA)
+    return out
+
 def calc_absorbance(df, blank_roi, channels=None):
     """Calcula absorbancia digital A = log10(I_blanco / I_muestra) para canales RGB."""
     if channels is None:
@@ -1011,22 +1038,25 @@ if pagina=="Análisis":
             use_circ = st.session_state.get("use_circular",False)
             diam_map = {r["label"]: st.session_state.get("global_diam",18) for r in rois} if use_circ else None
             if rois:
-                # Asignación de colores según lo que haya en assignment_df (si existe)
-                tm={}
-                if st.session_state.get("assignment_df") is not None:
-                    tm=dict(zip(st.session_state["assignment_df"]["ROI"],
-                                st.session_state["assignment_df"]["Tipo"]))
-                ann=draw_rois(img,rois,tm,circular=use_circ,diam_map=diam_map)
-                st.session_state["annotated_img"]=ann
-                leg=" ".join(
-                    f'<span style="background:{c};color:{TEXT};padding:1px 7px;'
-                    f'border-radius:3px;font-size:.68rem;font-weight:700;margin-right:2px;">'
-                    f'{TIPO_SHORT[t]}</span>'
-                    for t,c in TIPO_COLORS.items() if t!="Sin asignar")
-                st.markdown(leg,unsafe_allow_html=True)
-                st.image(ann, caption=f"Overlay en tiempo real — {'ROIs circulares' if use_circ else 'ROIs rectangulares'}", use_container_width=True)
+                try:
+                    tm = {}
+                    if st.session_state.get("assignment_df") is not None:
+                        tm = dict(zip(st.session_state["assignment_df"]["ROI"],
+                                      st.session_state["assignment_df"]["Tipo"]))
+                    ann = draw_rois(img, rois, tm, circular=use_circ, diam_map=diam_map)
+                    st.session_state["annotated_img"] = ann
+                    leg = " ".join(
+                        f'<span style="background:{c};color:{TEXT};padding:1px 7px;'
+                        f'border-radius:3px;font-size:.68rem;font-weight:700;margin-right:2px;">'
+                        f'{TIPO_SHORT[t]}</span>'
+                        for t,c in TIPO_COLORS.items() if t!="Sin asignar")
+                    st.markdown(leg, unsafe_allow_html=True)
+                    st.image(ann, caption=f"Overlay en tiempo real — {'ROIs circulares' if use_circ else 'ROIs rectangulares'}", use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error al dibujar ROIs: {str(e)}")
+                    st.image(img, caption="Imagen sin overlay (error al dibujar)", use_container_width=True)
             else:
-                st.image(img,caption="Imagen original — defina ROIs para ver el overlay", use_container_width=True)
+                st.image(img, caption="Imagen original — defina ROIs para ver el overlay", use_container_width=True)
 
         if not rois:
             ibox("Configure las ROIs para continuar.")
@@ -1066,7 +1096,7 @@ if pagina=="Análisis":
             },
             num_rows="fixed",
             use_container_width=True,
-            key="asgn_editor"   # clave fija, no cambia
+            key="asgn_editor"
         )
         st.session_state["assignment_df"] = edited
         blank_r=edited[edited["Tipo"]=="Blanco"]
@@ -1079,16 +1109,21 @@ if pagina=="Análisis":
         use_circ = st.session_state.get("use_circular",False)
         diam_map = {r["label"]: st.session_state.get("global_diam",18) for r in rois} if use_circ else None
         tm2=dict(zip(edited["ROI"],edited["Tipo"]))
-        ann2=draw_rois(img,rois,tm2,circular=use_circ,diam_map=diam_map)
-        st.session_state["annotated_img"]=ann2
-        legend=" ".join(
-            f'<span style="background:{c};color:{TEXT};padding:2px 8px;'
-            f'border-radius:3px;font-size:.7rem;font-weight:700;margin-right:3px;">'
-            f'{TIPO_SHORT[t]}</span>'
-            for t,c in TIPO_COLORS.items() if t!="Sin asignar")
-        st.markdown(f'<p class="slbl">Overlay en tiempo real</p>',unsafe_allow_html=True)
-        st.markdown(legend,unsafe_allow_html=True)
-        st.image(ann2, caption="Los colores se actualizan al instante al editar la tabla", use_container_width=True)
+        try:
+            ann2 = draw_rois(img, rois, tm2, circular=use_circ, diam_map=diam_map)
+            st.session_state["annotated_img"] = ann2
+            legend = " ".join(
+                f'<span style="background:{c};color:{TEXT};padding:2px 8px;'
+                f'border-radius:3px;font-size:.7rem;font-weight:700;margin-right:3px;">'
+                f'{TIPO_SHORT[t]}</span>'
+                for t,c in TIPO_COLORS.items() if t!="Sin asignar")
+            st.markdown(f'<p class="slbl">Overlay en tiempo real</p>',unsafe_allow_html=True)
+            st.markdown(legend,unsafe_allow_html=True)
+            st.image(ann2, caption="Los colores se actualizan al instante al editar la tabla", use_container_width=True)
+        except Exception as e:
+            st.error(f"Error al dibujar ROIs: {str(e)}")
+            st.image(img, caption="Imagen sin overlay (error)", use_container_width=True)
+
         dev=st.session_state.get("device_type","")
         is_plate=(dev=="Microplaca de 96 pocillos")
         if is_plate:
@@ -1216,7 +1251,7 @@ if pagina=="Análisis":
                         f'<b>Pendiente {cal["m"]:+.4f}:</b> {slope_msg}</div>',
                         unsafe_allow_html=True)
 
-        # Mostrar métricas y cuantificación (mismo código que antes, sin cambios)
+        # Mostrar métricas y cuantificación
         cal = st.session_state.get("cal_result")
         if cal:
             sel_ch = st.session_state.get("selected_channel","G_norm")
