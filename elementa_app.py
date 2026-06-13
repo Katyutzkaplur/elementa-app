@@ -1,5 +1,5 @@
 """
-Elementa — Sistema Analitico Colorimetrico Digital
+Elementa — Sistema Analítico Colorimétrico Digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
 Software científico para colorimetría digital basada en imágenes RGB.
@@ -14,7 +14,7 @@ from PIL import Image
 import plotly.graph_objects as go
 from scipy import stats
 from io import BytesIO
-import base64, datetime, math, hashlib, warnings
+import base64, datetime, math, hashlib, warnings, re
 warnings.filterwarnings("ignore")
 
 # ─── Zona horaria ─────────────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ PLOT_BG  = "#0B1120"
 
 TIPO_COLORS = {
     "Blanco":           "#0EA5E9",
-    "Estandar":         "#059669",
+    "Estándar":         "#059669",
     "Muestra":          "#2563EB",
     "Control":          "#7C3AED",
     "Adición estándar": "#DB2777",
@@ -57,17 +57,17 @@ TIPO_COLORS = {
 }
 TIPO_BGR = {
     "Blanco":           (8,  165, 233),
-    "Estandar":         (5,  150, 105),
+    "Estándar":         (5,  150, 105),
     "Muestra":          (37,  99, 235),
     "Control":          (124, 58, 237),
     "Adición estándar": (219, 39, 119),
     "Sin asignar":      (30,  41,  59),
 }
 TIPO_SHORT = {
-    "Blanco":"BLANK","Estandar":"STD","Muestra":"SMP",
+    "Blanco":"BLANK","Estándar":"STD","Muestra":"SMP",
     "Control":"CTRL","Adición estándar":"ADD","Sin asignar":"--",
 }
-TIPOS    = ["Sin asignar","Blanco","Estandar","Muestra","Control","Adición estándar"]
+TIPOS    = ["Sin asignar","Blanco","Estándar","Muestra","Control","Adición estándar"]
 ANALITOS = ["Cr(VI)","Pb","Cd","Cr total","DPPH","ABTS","FRAP","Nitrógeno amoniacal","Fenoles totales","Otro"]
 UNIDADES = ["mg/L","µg/L","ppm","µM","mM","%","µg/mL","Otro"]
 
@@ -79,7 +79,7 @@ NORMATIVE_LIMITS = {
 }
 
 STAT_EXPL = {
-    "R2":       "Coeficiente de determinación. Proporción de la varianza de la señal explicada por la concentración. R2 >= 0.999 = linealidad excelente para cuantificación analítica.",
+    "R2":       "Coeficiente de determinación. Proporción de la varianza de la señal explicada por la concentración. R² >= 0.999 = linealidad excelente para cuantificación analítica.",
     "slope":    "Pendiente (m). Sensibilidad analítica del método: cambio de señal por unidad de concentración. La pendiente negativa es válida en ensayos donde el analito reduce el color (DPPH, ABTS).",
     "intercept": "Intercepto (b). Señal teórica a concentración cero. Idealmente cercano al valor del blanco de reactivos.",
     "se":       "Error estándar de la pendiente (Sb). Incertidumbre en la estimación de la sensibilidad. Sb/|m| menor a 1% indica excelente precisión.",
@@ -91,41 +91,41 @@ STAT_EXPL = {
 def interpret_r2(r2):
     if r2 >= 0.999: return "Linealidad excelente", SUCCESS
     if r2 >= 0.995: return "Muy buena", SUCCESS
-    if r2 >= 0.990: return "Ligera dispersion experimental", "#F59E0B"
+    if r2 >= 0.990: return "Ligera dispersión experimental", "#F59E0B"
     return "Revisar calibración", DANGER
 
 def interpret_slope(m):
     if m > 0:
-        return "Relacion directa: la señal aumenta con la concentracion.", ACCENT
+        return "Relación directa: la señal aumenta con la concentración.", ACCENT
     else:
-        return ("Relacion inversa: la señal disminuye con la concentracion. "
+        return ("Relación inversa: la señal disminuye con la concentración. "
                 "Esto puede ser completamente normal dependiendo del canal y "
-                "la transformacion colorimetrica aplicada (ej. DPPH, nitratos).", "#F59E0B")
+                "la transformación colorimétrica aplicada (ej. DPPH, nitratos).", "#F59E0B")
 
 # ─── Biblioteca de Protocolos Analíticos ─────────────────────────────────────
 PROTOCOL_LIBRARY = {
     "Metales pesados": {
         "Cr(VI) — Difenilcarbazida": dict(
             analito="Cr(VI)", unidad="mg/L",
-            principio="El Cr(VI) reacciona con 1,5-difenilcarbazida en medio acido (pH 1.5-2.0) formando un complejo rojo-violeta intenso.",
+            principio="El Cr(VI) reacciona con 1,5-difenilcarbazida en medio ácido (pH 1.5-2.0) formando un complejo rojo-violeta intenso.",
             lambda_ref=540, color="Rojo-violeta", canal="G_norm",
-            obs="Interferencias: Fe(III), Mo, V, Cu. Preparar patron en agua ultrapura.",
+            obs="Interferencias: Fe(III), Mo, V, Cu. Preparar patrón en agua ultrapura.",
             ref="NMX-AA-044-SCFI-2014 | APHA Method 3500-Cr B"),
         "Pb — Ditizona": dict(
-            analito="Pb", unidad="ug/L",
-            principio="El Pb(II) forma un complejo rojo-escarlata con ditizona en solvente organico a pH controlado.",
+            analito="Pb", unidad="µg/L",
+            principio="El Pb(II) forma un complejo rojo-escarlata con ditizona en solvente orgánico a pH controlado.",
             lambda_ref=510, color="Rojo-escarlata", canal="G_norm",
             obs="Controlar pH con acetato de amonio. Interferencias: Sn, Bi, Tl.",
             ref="NOM-117-SSA1-1994 | APHA Method 3500-Pb"),
         "Cd — Ditizona": dict(
-            analito="Cd", unidad="ug/L",
+            analito="Cd", unidad="µg/L",
             principio="El Cd(II) forma un complejo amarillo-anaranjado con ditizona a pH 8-9.",
             lambda_ref=518, color="Amarillo-anaranjado", canal="B_norm",
             obs="Enmascarar Cu y Zn con KCN. pH con buffer de tartrato.",
             ref="APHA Method 3500-Cd"),
-        "Cu — Neocuproina": dict(
+        "Cu — Neocuproína": dict(
             analito="Cu", unidad="mg/L",
-            principio="El Cu(I) forma un complejo naranja-amarillo con neocuproina (2,9-dimetil-1,10-fenantrolina).",
+            principio="El Cu(I) forma un complejo naranja-amarillo con neocuproína (2,9-dimetil-1,10-fenantrolina).",
             lambda_ref=457, color="Naranja-amarillo", canal="B_norm",
             obs="Reducir Cu(II) a Cu(I) con hidroxilamina. pH 3.5-4.5.",
             ref="APHA Method 3500-Cu"),
@@ -136,8 +136,8 @@ PROTOCOL_LIBRARY = {
             obs="pH 3-9. Interferencias: Cu, Co, Ni a altas concentraciones.",
             ref="APHA Method 3500-Fe B"),
     },
-    "Parametros ambientales": {
-        "Nitrogeno amoniacal — Nessler": dict(
+    "Parámetros ambientales": {
+        "Nitrógeno amoniacal — Nessler": dict(
             analito="N-NH3", unidad="mg/L",
             principio="El reactivo de Nessler (K2HgI4) reacciona con NH3 formando un complejo amarillo-pardo.",
             lambda_ref=420, color="Amarillo-pardo", canal="B_norm",
@@ -149,65 +149,65 @@ PROTOCOL_LIBRARY = {
             lambda_ref=543, color="Rosa-rojo", canal="G_norm",
             obs="pH 1.5-2.5. Sin interferencias significativas a concentraciones habituales.",
             ref="NMX-AA-079-SCFI-2001 | APHA Method 4500-NO2 B"),
-        "Nitratos — Reduccion con Zn": dict(
+        "Nitratos — Reducción con Zn": dict(
             analito="NO3-N", unidad="mg/L",
-            principio="Los nitratos se reducen a nitritos con Zn en polvo, luego se detectan por el metodo de Griess.",
+            principio="Los nitratos se reducen a nitritos con Zn en polvo, luego se detectan por el método de Griess.",
             lambda_ref=543, color="Rosa-rojo", canal="G_norm",
             obs="Usar agua libre de nitratos. Temperatura controlada.",
             ref="APHA Method 4500-NO3 B"),
-        "Fosfatos — Acido ascorbico": dict(
+        "Fosfatos — Ácido ascórbico": dict(
             analito="PO4-P", unidad="mg/L",
-            principio="Los fosfatos forman un complejo azul de fosfomolibdeno reducido con acido ascorbico.",
+            principio="Los fosfatos forman un complejo azul de fosfomolibdeno reducido con ácido ascórbico.",
             lambda_ref=880, color="Azul", canal="R_norm",
             obs="pH 3.8. Interferencias: sulfuros, silicatos a altas concentraciones.",
             ref="NMX-AA-029-SCFI-2001 | APHA Method 4500-P E"),
-        "Sulfatos — Turbidimetria": dict(
+        "Sulfatos — Turbidimetría": dict(
             analito="SO4", unidad="mg/L",
-            principio="Los sulfatos precipitan con BaCl2 formando BaSO4 (turbidez). Medicion a 420 nm.",
+            principio="Los sulfatos precipitan con BaCl2 formando BaSO4 (turbidez). Medición a 420 nm.",
             lambda_ref=420, color="Turbio/Blanco", canal="B_norm",
-            obs="Concentracion de SO4 entre 1-40 mg/L. Homogeneizar bien.",
+            obs="Concentración de SO4 entre 1-40 mg/L. Homogeneizar bien.",
             ref="APHA Method 4500-SO4 E"),
     },
     "Antioxidantes y bioactivos": {
         "Fenoles totales — Folin-Ciocalteu": dict(
             analito="Fenoles totales", unidad="mg GAE/L",
-            principio="Los grupos fenolicos reducen el reactivo de Folin-Ciocalteu formando un complejo azul intenso.",
+            principio="Los grupos fenólicos reducen el reactivo de Folin-Ciocalteu formando un complejo azul intenso.",
             lambda_ref=765, color="Azul", canal="R_norm",
             obs="pH alcalino con Na2CO3. Incubar 2 h a temperatura ambiente.",
             ref="Singleton & Rossi, 1965 | Folin & Ciocalteu, 1927"),
         "DPPH — Actividad antioxidante": dict(
             analito="DPPH IC50", unidad="%",
-            principio="El radical DPPH (purpura) se reduce por antioxidantes perdiendo color. Senal decreciente.",
-            lambda_ref=515, color="Purpura → decolorado", canal="G_norm",
-            obs="Pendiente NEGATIVA esperada. Expresar como IC50 o % inhibicion.",
+            principio="El radical DPPH (púrpura) se reduce por antioxidantes perdiendo color. Señal decreciente.",
+            lambda_ref=515, color="Púrpura → decolorado", canal="G_norm",
+            obs="Pendiente NEGATIVA esperada. Expresar como IC50 o % inhibición.",
             ref="Brand-Williams et al. 1995"),
         "ABTS — Actividad antioxidante": dict(
             analito="ABTS TEAC", unidad="mM TE/L",
-            principio="El radical ABTS•+ (verde-azulado) se reduce por antioxidantes. Senal decreciente.",
+            principio="El radical ABTS•+ (verde-azulado) se reduce por antioxidantes. Señal decreciente.",
             lambda_ref=734, color="Verde-azulado → claro", canal="R_norm",
             obs="Pendiente NEGATIVA esperada. Resultados en equivalentes Trolox (TEAC).",
             ref="Re et al. 1999"),
-        "FRAP — Poder reductor ferrico": dict(
+        "FRAP — Poder reductor férrico": dict(
             analito="FRAP", unidad="mM Fe2+/L",
-            principio="El Fe3+-TPTZ se reduce a Fe2+-TPTZ (azul intenso) por antioxidantes. Senal creciente.",
+            principio="El Fe3+-TPTZ se reduce a Fe2+-TPTZ (azul intenso) por antioxidantes. Señal creciente.",
             lambda_ref=593, color="Azul", canal="R_norm",
             obs="Pendiente POSITIVA. pH 3.6 con buffer acetato. 37°C.",
             ref="Benzie & Strain, 1996"),
         "Flavonoides totales — AlCl3": dict(
             analito="Flavonoides", unidad="mg QE/L",
-            principio="Los flavonoides forman complejos amarillos con AlCl3 y NaNO2 en medio basico.",
+            principio="Los flavonoides forman complejos amarillos con AlCl3 y NaNO2 en medio básico.",
             lambda_ref=510, color="Amarillo-naranja", canal="B_norm",
             obs="Expresar en equivalentes de quercetina (QE). pH alcalino con NaOH.",
             ref="Zhishen et al. 1999"),
         "MDA — TBARS": dict(
             analito="MDA", unidad="nmol/mL",
-            principio="El malondialdehido (MDA) reacciona con acido tiobarbiturco (TBA) formando un complejo rosa-rojo.",
+            principio="El malondialdehído (MDA) reacciona con ácido tiobarbitúrico (TBA) formando un complejo rosa-rojo.",
             lambda_ref=532, color="Rosa-rojo", canal="G_norm",
-            obs="Temperatura 95°C durante 60 min. Interferencias: azucares, otros aldehidos.",
+            obs="Temperatura 95°C durante 60 min. Interferencias: azúcares, otros aldehídos.",
             ref="Ohkawa et al. 1979"),
         "Clorofilas — Arnon": dict(
             analito="Clorofila total", unidad="mg/L",
-            principio="Extraccion con acetona 80% y medicion espectrofotometrica multi-longitud de onda.",
+            principio="Extracción con acetona 80% y medición espectrofotométrica multi-longitud de onda.",
             lambda_ref=663, color="Verde", canal="R_norm",
             obs="Usar canal R para clorofila a, canal G para clorofila b. Proteger de luz.",
             ref="Arnon, 1949 | Lichtenthaler, 1987"),
@@ -216,7 +216,7 @@ PROTOCOL_LIBRARY = {
 
 # ─── Calidad de imagen ────────────────────────────────────────────────────────
 def check_image_quality(img: np.ndarray) -> dict:
-    """Evalua enfoque, iluminacion, saturacion y sobreexposicion."""
+    """Evalúa enfoque, iluminación, saturación y sobreexposición."""
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     lap_var   = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     brightness= float(gray.mean())
@@ -238,11 +238,11 @@ def check_image_quality(img: np.ndarray) -> dict:
                         "grade": grade(lap_var, (80,1e9), (40,1e9))},
         "brightness":  {"val": round(brightness,1),"label": f"Brillo medio: {brightness:.0f}/255",
                         "grade": grade(brightness, (60,200), (30,230))},
-        "saturation":  {"val": round(sat_mean,1),  "label": f"Saturacion media (HSV): {sat_mean:.0f}/255",
+        "saturation":  {"val": round(sat_mean,1),  "label": f"Saturación media (HSV): {sat_mean:.0f}/255",
                         "grade": grade(sat_mean, (20,1e9), (10,1e9))},
-        "overexposure":{"val": round(overexp,1),   "label": f"Pixeles sobreexpuestos: {overexp:.1f}%",
+        "overexposure":{"val": round(overexp,1),   "label": f"Píxeles sobreexpuestos: {overexp:.1f}%",
                         "grade": grade(overexp, (0,5), (0,15))},
-        "underexposure":{"val": round(underexp,1), "label": f"Pixeles subexpuestos: {underexp:.1f}%",
+        "underexposure":{"val": round(underexp,1), "label": f"Píxeles subexpuestos: {underexp:.1f}%",
                         "grade": grade(underexp, (0,5), (0,15))},
     }
 
@@ -303,18 +303,32 @@ def roi_fp(rois):
     return hashlib.md5("|".join(r["label"] for r in rois).encode()).hexdigest()[:12]
 
 def ensure_asgn(rois):
-    """Crea o preserva assignment_df usando fingerprint — sin perder datos del usuario."""
+    """
+    Preserva los datos de asignación si la geometría de ROIs no cambió.
+    Si cambió, migra los datos antiguos por etiqueta de ROI.
+    """
     fp = roi_fp(rois)
-    if st.session_state.get("_asgn_fp") == fp and st.session_state.get("assignment_df") is not None:
+    old_df = st.session_state.get("assignment_df")
+    old_fp = st.session_state.get("_asgn_fp")
+
+    # Si ya tenemos datos y el fingerprint es el mismo, no hacer nada
+    if old_df is not None and old_fp == fp:
         return
-    old = {}
-    if st.session_state.get("assignment_df") is not None:
-        for _, r in st.session_state["assignment_df"].iterrows():
-            old[r["ROI"]] = r.to_dict()
+
+    # Respaldo de seguridad
+    st.session_state["assignment_df_backup"] = old_df.copy() if old_df is not None else None
+    st.session_state["roi_config_backup"] = {"rois":rois, "fp":fp}
+
+    # Construir nuevo DataFrame manteniendo datos previos por etiqueta
+    old_data = {}
+    if old_df is not None:
+        for _, row in old_df.iterrows():
+            old_data[row["ROI"]] = row.to_dict()
+
     rows = []
     for roi in rois:
-        if roi["label"] in old:
-            rows.append(old[roi["label"]])
+        if roi["label"] in old_data:
+            rows.append(old_data[roi["label"]])
         else:
             rows.append({"ROI":roi["label"],"Tipo":"Sin asignar","Nombre":"",
                          "Concentracion":0.0,"Unidad":"mg/L",
@@ -325,7 +339,7 @@ def ensure_asgn(rois):
 def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
     """
     Dibuja ROIs sobre la imagen.
-    circular=True → contorno circular con mascara interna semitransparente.
+    circular=True → contorno circular con máscara interna semitransparente.
     """
     out = img.copy()
     for roi in rois:
@@ -349,9 +363,8 @@ def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.32, bgr, 1, cv2.LINE_AA)
     return out
 
-
 def extract_rgb(img, rois, circular=False, diam_map=None):
-    """Extrae estadisticas RGB. Si circular=True usa mascara circular."""
+    """Extrae estadísticas RGB. Si circular=True usa máscara circular."""
     H, W = img.shape[:2]; rows = []
     for roi in rois:
         x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
@@ -382,11 +395,10 @@ def extract_rgb(img, rois, circular=False, diam_map=None):
                      "R_sd":round(rv.std(),2),"G_sd":round(gv.std(),2),"B_sd":round(bv.std(),2)})
     return pd.DataFrame(rows)
 
-
 def extract_extended_channels(img, rois, circular=False, diam_map=None):
     """
     Extrae canales RGB + HSV + LAB para cada ROI.
-    Permite barrido completo de canales para seleccion optima.
+    Permite barrido completo de canales para selección óptima.
     """
     H, W = img.shape[:2]; rows = []
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
@@ -452,10 +464,7 @@ def calc_absorbance(df, blank_roi, channels=None):
 def fit_line(x, y):
     mask = ~(np.isnan(x) | np.isnan(y))
     x, y = x[mask], y[mask]
-    if len(x) < 2:
-        return None
-    # Evitar ValueError: linregress requiere al menos 2 valores distintos en X
-    if len(np.unique(x)) < 2:
+    if len(x) < 2 or len(np.unique(x)) < 2:
         return None
     m, b, r, _, se = stats.linregress(x, y)
     return {"m": m, "b": b, "r2": r**2, "se": se, "n": len(x),
@@ -464,7 +473,7 @@ def fit_line(x, y):
 ALL_CHANNELS = ["R_norm","G_norm","B_norm","H","S","V","L","a","b_lab"]
 CHANNEL_LABELS = {
     "R_norm":"R normalizado","G_norm":"G normalizado","B_norm":"B normalizado",
-    "H":"Hue (HSV)","S":"Saturacion (HSV)","V":"Valor (HSV)",
+    "H":"Hue (HSV)","S":"Saturación (HSV)","V":"Valor (HSV)",
     "L":"L* (CIELAB)","a":"a* (CIELAB)","b_lab":"b* (CIELAB)",
 }
 
@@ -472,7 +481,7 @@ def best_channel(df_merged, channels=None):
     """Selecciona el canal con mayor R² entre todos los canales disponibles."""
     if channels is None:
         channels = [c for c in ALL_CHANNELS if f"A_{c}" in df_merged.columns]
-    std = df_merged[df_merged["Tipo"]=="Estandar"].copy()
+    std = df_merged[df_merged["Tipo"]=="Estándar"].copy()
     if len(std)<2 or "Concentracion" not in std.columns:
         return "G_norm",{}
     concs=std["Concentracion"].values.astype(float)
@@ -489,10 +498,19 @@ def best_channel(df_merged, channels=None):
     return bst,res
 
 def calc_lod_loq(cal, blank_sigs=None):
+    """Calcula LOD/LOQ usando Sy/x y abs(m)."""
     m=abs(cal["m"])
     if m<1e-12: return np.nan,np.nan,True
-    sigma=np.std(blank_sigs,ddof=1) if blank_sigs is not None and len(blank_sigs)>=2 else cal["se"]
-    proxy=blank_sigs is None or len(blank_sigs)<2
+    # Si hay réplicas de blanco, usar su desviación estándar, si no usar error residual
+    if blank_sigs is not None and len(blank_sigs)>=2:
+        sigma = np.std(blank_sigs, ddof=1)
+    else:
+        # Usar Sy/x (error estándar residual)
+        if len(cal["res"]) > 2:
+            sigma = np.sqrt(np.sum(cal["res"]**2) / (len(cal["res"]) - 2))
+        else:
+            sigma = cal["se"]
+    proxy = (blank_sigs is None or len(blank_sigs)<2)
     return 3.3*sigma/m, 10*sigma/m, proxy
 
 def std_addition(added,sigs):
@@ -520,11 +538,7 @@ def detect_triplicates(asgn_df):
     return {k:v for k,v in groups.items() if len(v)>=2}
 
 def triplate_stats(df_merged, groups, sig_col):
-    """
-    Calcula media, SD y CV% por grupo de triplicado.
-    FIX: usa df_merged directamente (ya tiene Tipo, Concentracion, etc.)
-    No hace un segundo merge para evitar columnas _x/_y.
-    """
+    """Calcula media, SD y CV% por grupo de triplicado."""
     rows=[]
     for col_k, rlist in sorted(groups.items(), key=lambda x: int(x[0])):
         sub=df_merged[df_merged["ROI"].isin(rlist)]
@@ -534,7 +548,6 @@ def triplate_stats(df_merged, groups, sig_col):
         mean=float(np.mean(sigs))
         sd  =float(np.std(sigs,ddof=1)) if len(sigs)>1 else float("nan")
         cv  =abs(sd/mean)*100 if not math.isnan(sd) and mean!=0 else float("nan")
-        # Acceder a Tipo y Concentracion desde df_merged directamente
         tipo= sub["Tipo"].iloc[0]         if "Tipo"          in sub.columns else ""
         conc= sub["Concentracion"].iloc[0] if "Concentracion" in sub.columns else float("nan")
         nombre=sub["Nombre"].iloc[0]       if "Nombre"        in sub.columns else ""
@@ -572,7 +585,7 @@ def plot_plate(asgn_df, tri_groups):
     if not all_rows or not all_cols:
         return go.Figure()
 
-    idx_map={"Blanco":1,"Estandar":2,"Muestra":3,"Control":4,"Adicion estandar":5}
+    idx_map={"Blanco":1,"Estándar":2,"Muestra":3,"Control":4,"Adición estándar":5}
     cs=[[0/5,"#0B1120"],[0.18/5,"#0B1120"],
         [1/5,"#0C2540"],[1.18/5,"#0C2540"],
         [2/5,"#052e16"],[2.18/5,"#052e16"],
@@ -612,9 +625,9 @@ def plot_cal(concs,sigs,cal,ch,analyte,unit,lod,loq):
     x1=float(concs.max())*1.15; xl=np.linspace(x0,x1,300)
     fig=go.Figure()
     fig.add_trace(go.Scatter(x=concs,y=sigs,mode="markers",
-        marker=dict(color=ACCENT,size=10,line=dict(color=PLOT_BG,width=1.5)),name="Estandares"))
+        marker=dict(color=ACCENT,size=10,line=dict(color=PLOT_BG,width=1.5)),name="Estándares"))
     fig.add_trace(go.Scatter(x=xl,y=cal["m"]*xl+cal["b"],mode="lines",
-        line=dict(color=SUCCESS,width=2.2),name="Regresion lineal"))
+        line=dict(color=SUCCESS,width=2.2),name="Regresión lineal"))
     if not np.isnan(lod): fig.add_vline(x=lod,line_dash="dot",line_color=DANGER,
         annotation_text=f"LOD={lod:.3f}",annotation_font_color=DANGER,annotation_font_size=9)
     if not np.isnan(loq): fig.add_vline(x=loq,line_dash="dot",line_color="#F59E0B",
@@ -624,8 +637,8 @@ def plot_cal(concs,sigs,cal,ch,analyte,unit,lod,loq):
     fig.add_annotation(x=0.03,y=0.97,xref="paper",yref="paper",text=eq,showarrow=False,
         font=dict(color="#4ADE80",size=10,family="JetBrains Mono"),
         bgcolor="rgba(11,17,32,.85)",bordercolor=SUCCESS,borderwidth=1,borderpad=5)
-    fig.update_layout(**_PLT,title=f"Curva de calibracion — {analyte} | Canal {ch}",
-        xaxis_title=f"Concentracion ({unit})",yaxis_title="Absorbancia digital")
+    fig.update_layout(**_PLT,title=f"Curva de calibración — {analyte} | Canal {ch}",
+        xaxis_title=f"Concentración ({unit})",yaxis_title="Absorbancia digital")
     return fig
 
 def plot_residuals(concs,cal,ch):
@@ -644,8 +657,6 @@ def plot_channels(ch_res):
     chs=[c for c in ALL_CHANNELS if c in ch_res]
     if not chs: chs=list(ch_res.keys())
     r2s=[ch_res[c]["r2"]  for c in chs]
-    ms =[ch_res[c]["m"]   for c in chs]
-    ses=[ch_res[c]["se"]  for c in chs]
     mx =max(r2s)
     clrs=[SUCCESS if v==mx else CARD2 for v in r2s]
     labels=[CHANNEL_LABELS.get(c,c) for c in chs]
@@ -670,7 +681,7 @@ def plot_channel_table(ch_res) -> pd.DataFrame:
         rows.append({
             "Canal":       CHANNEL_LABELS.get(ch,ch),
             "R²":          round(cal["r2"],5),
-            "Interpretacion R²": r2i,
+            "Interpretación R²": r2i,
             "Pendiente m": round(cal["m"],4),
             "Tipo pendiente": "Directa" if cal["m"]>0 else "Inversa",
             "Intercepto b":round(cal["b"],4),
@@ -687,14 +698,14 @@ def plot_sa(added,sigs,sa,analyte,unit):
     fig.add_trace(go.Scatter(x=added,y=sigs,mode="markers",
         marker=dict(color=ACCENT,size=10,line=dict(color=PLOT_BG,width=1.5)),name="Adiciones"))
     fig.add_trace(go.Scatter(x=xl,y=m*xl+b,mode="lines",
-        line=dict(color=SUCCESS,width=2),name="Proyeccion"))
+        line=dict(color=SUCCESS,width=2),name="Proyección"))
     fig.add_trace(go.Scatter(x=[xi],y=[0],mode="markers+text",
         marker=dict(color=DANGER,size=14,symbol="x-thin",line=dict(color=DANGER,width=3)),
         text=[f" C = {sa['c_sample']:.3f} {unit}"],textposition="middle right",
         textfont=dict(color=DANGER,size=10,family="JetBrains Mono"),name="C muestra"))
     fig.add_hline(y=0,line_dash="dash",line_color=BORDER)
-    fig.update_layout(**_PLT,title=f"Adicion de estandar — {analyte}",
-        xaxis_title=f"Concentracion añadida ({unit})",yaxis_title="Señal")
+    fig.update_layout(**_PLT,title=f"Adición de estándar — {analyte}",
+        xaxis_title=f"Concentración añadida ({unit})",yaxis_title="Señal")
     return fig
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -712,12 +723,12 @@ def cal_to_png(cal,concs,sigs,ch,analyte,unit,lod,loq):
         RED2="#f87171"; ORG="#fb923c"; SUB="#94a3b8"; TXT2="#e2e8f0"
         fig,ax=plt.subplots(figsize=(7.8,3.8))
         fig.patch.set_facecolor(BG2); ax.set_facecolor(BG2)
-        ax.scatter(concs,sigs,color=GRN,s=60,zorder=5,edgecolors=BG2,linewidths=1.2,label="Estandares")
+        ax.scatter(concs,sigs,color=GRN,s=60,zorder=5,edgecolors=BG2,linewidths=1.2,label="Estándares")
         xmn=float(concs.min())*0.85 if float(concs.min())>0 else 0.0
         xmx=float(concs.max())*1.15
         if xmn==xmx: xmn-=0.1; xmx+=0.1
         xl=np.linspace(xmn,xmx,300)
-        ax.plot(xl,cal["m"]*xl+cal["b"],color=BLU,linewidth=2.2,label="Regresion lineal")
+        ax.plot(xl,cal["m"]*xl+cal["b"],color=BLU,linewidth=2.2,label="Regresión lineal")
         y_all=np.concatenate([sigs,cal["m"]*xl+cal["b"]])
         yb,yt=float(y_all.min()),float(y_all.max()); yp=(yt-yb)*0.04 if yt>yb else 0.01
         lod_ok=lod is not None and not (isinstance(lod,float) and math.isnan(lod))
@@ -728,9 +739,9 @@ def cal_to_png(cal,concs,sigs,ch,analyte,unit,lod,loq):
         ax.text(0.03,0.97,f"y={m:.4f}x {sgn} {abs(b):.4f}  |  R²={r2:.5f}",
                 transform=ax.transAxes,fontsize=8.5,color=GRN,va="top",ha="left",
                 bbox=dict(facecolor=CARD2C,edgecolor="#166534",boxstyle="round,pad=0.35"))
-        ax.set_xlabel(f"Concentracion ({unit})",color=SUB,fontsize=9)
+        ax.set_xlabel(f"Concentración ({unit})",color=SUB,fontsize=9)
         ax.set_ylabel("Absorbancia digital",color=SUB,fontsize=9)
-        ax.set_title(f"Curva de calibracion — {analyte} | Canal: {ch}",color=TXT2,fontsize=10,pad=8)
+        ax.set_title(f"Curva de calibración — {analyte} | Canal: {ch}",color=TXT2,fontsize=10,pad=8)
         ax.tick_params(colors=SUB,labelsize=8)
         for sp in ax.spines.values(): sp.set_edgecolor("#334155")
         leg=ax.legend(facecolor=CARD2C,edgecolor="#334155",fontsize=8)
@@ -744,12 +755,42 @@ def cal_to_png(cal,concs,sigs,ch,analyte,unit,lod,loq):
     except Exception:
         return None
 
+def channel_sweep_to_png(channel, cal, concs, sigs, unit):
+    """Genera una gráfica de barrido individual para un canal (matplotlib)."""
+    try:
+        import matplotlib.pyplot as plt
+        plt.switch_backend("agg")
+        BG2="#0f172a"; GRN="#4ade80"; BLU="#60a5fa"; SUB="#94a3b8"; TXT2="#e2e8f0"
+        fig,ax=plt.subplots(figsize=(4,3))
+        fig.patch.set_facecolor(BG2); ax.set_facecolor(BG2)
+        ax.scatter(concs,sigs,color=GRN,s=40,zorder=5,edgecolors=BG2,linewidths=1)
+        xmin=float(concs.min())*0.85 if float(concs.min())>0 else 0.0
+        xmax=float(concs.max())*1.15
+        if xmin==xmax: xmin-=0.1; xmax+=0.1
+        xl=np.linspace(xmin,xmax,100)
+        ax.plot(xl,cal["m"]*xl+cal["b"],color=BLU,linewidth=1.5)
+        ax.text(0.05,0.95,f"R²={cal['r2']:.4f}  m={cal['m']:.3f}",transform=ax.transAxes,
+                fontsize=7,color=TXT2,va="top",bbox=dict(facecolor="#1e293b",edgecolor="#334155",boxstyle="round"))
+        ax.set_title(f"{CHANNEL_LABELS.get(channel,channel)}",color=TXT2,fontsize=8)
+        ax.set_xlabel(f"Concentración ({unit})",color=SUB,fontsize=7)
+        ax.set_ylabel("Abs. digital",color=SUB,fontsize=7)
+        ax.tick_params(colors=SUB,labelsize=6)
+        for sp in ax.spines.values(): sp.set_edgecolor("#334155")
+        ax.grid(True,color="#1e293b",linewidth=0.4)
+        plt.tight_layout(pad=0.5)
+        buf=BytesIO()
+        plt.savefig(buf,format="png",dpi=150,bbox_inches="tight",facecolor=BG2,edgecolor="none")
+        buf.seek(0); data=buf.read(); plt.close(fig)
+        return data
+    except:
+        return None
+
 # ══════════════════════════════════════════════════════════════════════════════
-#  REPORTE PDF
+#  REPORTE PDF (mejorado)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
-            cal_png_bytes,unit="mg/L"):
+            cal_png_bytes,channel_sweep_pngs,selected_channel,unit="mg/L"):
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.colors import HexColor, white
@@ -796,12 +837,13 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
             ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
             ("LEFTPADDING",(0,0),(-1,-1),5)]))
         return t
-    now=fmt_mx(); story=[]
+    now=fmt_mx()
+    story=[]
     # Encabezado
     hdr=Table([[Paragraph("ELEMENTA",ts),
-                Paragraph(f"<b>Reporte de analisis colorimetrico</b><br/>"
+                Paragraph(f"<b>Reporte de análisis colorimétrico</b><br/>"
                           f"<font size='8'>{now}</font><br/>"
-                          f"<font size='8'>Analito: {analyte} | Metodo: {method}</font>",
+                          f"<font size='8'>Analito: {analyte} | Método: {method}</font>",
                           ps("HR",textColor=C["txt"],fontSize=9,fontName="Helvetica",alignment=2))]],
               colWidths=[3.0*inch,4.3*inch])
     hdr.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),C["bg"]),
@@ -817,96 +859,102 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
         ("LEFTPADDING",(0,0),(-1,-1),10),("RIGHTPADDING",(0,0),(-1,-1),10),
         ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6)]))
     story.append(av); story.append(Spacer(1,12))
-    # Imagen anotada
+
+    # A) Imagen con ROIs
     if annotated_img is not None:
-        story.append(Paragraph("Imagen procesada — regiones de interes", h2s))
+        story.append(Paragraph("A) Imagen procesada — regiones de interés", h2s))
         pil=Image.fromarray(annotated_img); ib=BytesIO(); pil.save(ib,"PNG"); ib.seek(0)
         story.append(RLImage(ib,width=4.8*inch,height=3.0*inch,kind="proportional"))
         story.append(Spacer(1,8))
+
+    # B) Barrido de canales
+    if channel_sweep_pngs and len(channel_sweep_pngs)>0:
+        story.append(Paragraph("B) Barrido de canales — selección de longitud de onda digital", h2s))
+        # Mostrar hasta 3 canales principales (R,G,B) + otros
+        for ch_png in channel_sweep_pngs[:3]:  # limitar a 3 para no alargar demasiado
+            story.append(RLImage(BytesIO(ch_png),width=5.5*inch,height=3.0*inch))
+            story.append(Spacer(1,4))
+        story.append(note("Gráficas de absorbancia digital vs concentración para los canales R_norm, G_norm, B_norm."))
+        story.append(Spacer(1,10))
+
     # Tabla RGB
     if df_rgb is not None and not df_rgb.empty:
-        story.append(Paragraph("Datos colorimetricos RGB por region de interes", h2s))
+        story.append(Paragraph("Datos colorimétricos RGB por región de interés", h2s))
         story.append(note("R, G, B: intensidad media del canal (0–255). "
-                          "R_norm, G_norm, B_norm: fraccion porcentual de cada canal respecto al total RGB."))
+                          "R_norm, G_norm, B_norm: fracción porcentual de cada canal respecto al total RGB."))
         story.append(Spacer(1,4))
         cols=[c for c in ["ROI","R","G","B","R_norm","G_norm","B_norm"] if c in df_rgb.columns]
         td=[cols]+[[f"{v:.2f}" if isinstance(v,float) else str(v) for v in row]
                    for _,row in df_rgb[cols].round(2).iterrows()]
         cw=[.9*inch]+[.85*inch]*(len(cols)-1)
         story.append(dtbl(td,cw)); story.append(Spacer(1,10))
-    # Calibracion
-    if cal:
-        story.append(Paragraph("Parametros de calibracion e interpretacion estadistica", h2s))
-        lod=cal.get("LOD",float("nan")); loq=cal.get("LOQ",float("nan"))
-        r2_int,_=interpret_r2(cal["r2"])
-        items=[
-            ("R²",          f"{cal['r2']:.5f}",  f"Interpretacion: {r2_int}. {STAT_EXPL['R2']}"),
-            ("m (Pendiente)",f"{cal['m']:.4f}",  STAT_EXPL["slope"]),
-            ("b (Intercepto)",f"{cal['b']:.4f}", STAT_EXPL["intercept"]),
-            ("Sb (Error est.)",f"{cal['se']:.5f}",STAT_EXPL["se"]),
-            ("n estandares",str(cal.get("n","N/D")),"Numero de puntos de calibracion en el ajuste."),
-            ("LOD",f"{lod:.3f}" if not math.isnan(lod) else "N/D", STAT_EXPL["LOD"]),
-            ("LOQ",f"{loq:.3f}" if not math.isnan(loq) else "N/D", STAT_EXPL["LOQ"]),
-        ]
-        for param,val,expl in items:
-            blk=[[ps2:=ps("CP",textColor=C["mut"],fontSize=8,fontName="Helvetica-Bold"),
-                  ps3:=ps("CV",textColor=HexColor("#4ADE80"),fontSize=10,fontName="Courier-Bold")],
-                 [None,None]]
-            b2=[
-                [Paragraph(param,ps("CP",textColor=C["mut"],fontSize=8,fontName="Helvetica-Bold")),
-                 Paragraph(val,  ps("CV",textColor=HexColor("#4ADE80"),fontSize=10,fontName="Courier-Bold"))],
-                [Paragraph(expl, ni), ""],
-            ]
-            bt=Table(b2,colWidths=[4.0*inch,3.3*inch])
-            bt.setStyle(TableStyle([
-                ("BACKGROUND",(0,0),(-1,0),C["card"]),
-                ("BACKGROUND",(0,1),(-1,1),C["nb"]),
-                ("TEXTCOLOR",(0,1),(0,1),C["nt"]),
-                ("GRID",(0,0),(-1,-1),.3,C["brd"]),
-                ("SPAN",(0,1),(-1,1)),
-                ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5),
-                ("LEFTPADDING",(0,0),(-1,-1),8),("RIGHTPADDING",(0,0),(-1,-1),8)]))
-            story.append(KeepTogether([bt,Spacer(1,4)]))
-        if cal.get("lod_proxy"):
-            story.append(note("LOD/LOQ calculados con error residual como proxy de sigma_blanco. "
-                              "Para mayor rigor incluya >= 10 replicas del blanco."))
-        story.append(Spacer(1,8))
-    # Grafica calibracion
-    if cal_png_bytes:
-        story.append(Paragraph("Grafica de calibracion", h2s))
+
+    # C) Curva de calibración final
+    if cal and cal_png_bytes:
+        story.append(Paragraph("C) Curva de calibración final optimizada", h2s))
         story.append(RLImage(BytesIO(cal_png_bytes),width=5.8*inch,height=3.2*inch))
-        story.append(note("Puntos azules: estandares. Linea verde: regresion lineal. "
-                          "Lineas punteadas: LOD (rojo) y LOQ (naranja)."))
+        story.append(note(f"Canal seleccionado: {selected_channel}. "
+                          "Puntos: estándares. Línea: regresión. Líneas punteadas: LOD/LOQ."))
+        story.append(Spacer(1,8))
+
+    # D) Resumen analítico
+    if cal:
+        story.append(Paragraph("D) Resumen analítico", h2s))
+        lod=cal.get("LOD",float("nan")); loq=cal.get("LOQ",float("nan"))
+        summary_data=[
+            ["Parámetro","Valor"],
+            ["Analito",analyte],
+            ["Método",method],
+            ["Canal usado",CHANNEL_LABELS.get(selected_channel,selected_channel)],
+            ["Pendiente (m)",f"{cal['m']:.4f}"],
+            ["Intercepto (b)",f"{cal['b']:.4f}"],
+            ["R²",f"{cal['r2']:.5f}"],
+            ["LOD",f"{lod:.3f}" if not math.isnan(lod) else "N/D"],
+            ["LOQ",f"{loq:.3f}" if not math.isnan(loq) else "N/D"],
+            ["Nº estándares",str(cal.get("n",""))],
+            ["Blanco usado",st.session_state.get("blank_label","No especificado")],
+            ["Fecha/hora",now],
+        ]
+        story.append(dtbl(summary_data,[2.5*inch,4.8*inch],C["grn"]))
         story.append(Spacer(1,10))
+
     # Triplicados
     if tri_df is not None and not tri_df.empty:
-        story.append(Paragraph("Estadisticas de triplicados", h2s))
+        story.append(Paragraph("Estadísticas de triplicados", h2s))
         story.append(note(STAT_EXPL["CV"])); story.append(Spacer(1,4))
         cols=list(tri_df.columns)
         td2=[cols]+[[str(v) if v is not None else "N/D" for v in row] for _,row in tri_df.iterrows()]
         cw2=[max(.7*inch,7.3*inch/len(cols))]*len(cols)
         story.append(dtbl(td2,cw2,C["grn"])); story.append(Spacer(1,10))
-    # Resultados
+
+    # E) Resultados de muestras
     if df_results is not None and not df_results.empty:
-        story.append(Paragraph("Resultados de cuantificacion", h2s))
+        story.append(Paragraph("E) Resultados de cuantificación", h2s))
         story.append(note("Conc_calc: calculada de la curva (x=(A-b)/m). "
-                          "Conc_corregida: multiplicada por el factor de dilucion."))
+                          "Conc_corregida: multiplicada por el factor de dilución."))
         story.append(Spacer(1,4))
         cols=list(df_results.columns)
         td3=[cols]+[[f"{v:.3f}" if isinstance(v,float) else str(v) for v in row]
                     for _,row in df_results.iterrows()]
         cw3=[max(.7*inch,7.3*inch/len(cols))]*len(cols)
         story.append(dtbl(td3,cw3)); story.append(Spacer(1,10))
+
     # Pie
     story.append(HRFlowable(width="100%",thickness=0.5,color=C["brd"]))
     story.append(Spacer(1,5))
-    story.append(note("<b>Nota cientifica:</b> La precision depende de la iluminacion, el sensor, "
-                      "los reactivos y la preparacion de estandares. Para cumplimiento normativo "
-                      "confirmar mediante metodos acreditados. Consultar siempre la version vigente del DOF."))
+    story.append(note("<b>Nota científica:</b> La precisión depende de la iluminación, el sensor, "
+                      "los reactivos y la preparación de estándares. Para cumplimiento normativo "
+                      "confirmar mediante métodos acreditados. Consultar siempre la versión vigente del DOF."))
     story.append(Spacer(1,8))
     story.append(Paragraph("Derechos reservados (Katyutzka Villarreal, 2026)  |  Elementa",fs))
     doc.build(story); buf.seek(0)
     return buf.read()
+
+def sanitize_filename(name):
+    """Convierte nombre de analito a formato seguro para archivo."""
+    name = name.replace("(", "").replace(")", "").replace(" ", "_")
+    name = re.sub(r'[^\w\-_\.]', '', name)
+    return name
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SESSION STATE
@@ -921,7 +969,8 @@ def init():
               df_results=None,annotated_img=None,
               cal_fig=None,res_fig=None,sa_fig=None,sa_result=None,
               cal_concs=None,cal_sigs=None,cal_unit="mg/L",cal_analyte="",cal_ch="",
-              cal_png=None)
+              cal_png=None,selected_channel="G_norm",
+              assignment_df_backup=None,roi_config_backup=None)
     for k,v in defs.items():
         if k not in st.session_state: st.session_state[k]=v
 
@@ -943,7 +992,7 @@ def wbox(t): st.markdown(f'<div class="warn-box">{t}</div>',unsafe_allow_html=Tr
 def okbox(t): st.markdown(f'<div class="ok-box">{t}</div>',unsafe_allow_html=True)
 def slbl(t): st.markdown(f'<p class="slbl">{t}</p>',unsafe_allow_html=True)
 def footer():
-    st.markdown('<div class="footer">Derechos reservados (Katyutzka Villarreal, 2026) | Elementa — Sistema Analitico Colorimetrico Digital</div>',unsafe_allow_html=True)
+    st.markdown('<div class="footer">Derechos reservados (Katyutzka Villarreal, 2026) | Elementa — Sistema Analítico Colorimétrico Digital</div>',unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SIDEBAR
@@ -951,24 +1000,24 @@ def footer():
 
 with st.sidebar:
     st.markdown(f"<h2 style='color:{TEXT};margin:0;font-size:1.5rem;font-weight:700;letter-spacing:-.02em;'>Elementa</h2>",unsafe_allow_html=True)
-    st.markdown(f"<p style='color:{MUTED};font-size:.65rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin:2px 0 16px 0;'>Sistema Colorimetrico Digital</p>",unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{MUTED};font-size:.65rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;margin:2px 0 16px 0;'>Sistema Colorimétrico Digital</p>",unsafe_allow_html=True)
     st.divider()
-    pagina=st.radio("Seccion",
-        ["Tutorial","Analisis","Biblioteca de Metodos","Fundamentos","Normativa"],
+    pagina=st.radio("Sección",
+        ["Tutorial","Análisis","Biblioteca de Métodos","Fundamentos","Normativa"],
         label_visibility="collapsed")
     st.divider()
-    st.markdown(f"<p style='color:{MUTED};font-size:.68rem;line-height:1.6;'>Estimaciones colorimétricas digitales. No sustituyen metodos certificados.</p>",unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{MUTED};font-size:.68rem;line-height:1.6;'>Estimaciones colorimétricas digitales. No sustituyen métodos certificados.</p>",unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ANÁLISIS
 # ══════════════════════════════════════════════════════════════════════════════
 
-if pagina=="Analisis":
-    st.markdown("<h1>Analisis Colorimetrico Digital</h1>",unsafe_allow_html=True)
-    st.markdown(f"<p style='color:{MUTED};margin-top:-6px;font-size:.85rem;'>Calibracion, cuantificacion y evaluacion normativa por imagenes RGB.</p>",unsafe_allow_html=True)
+if pagina=="Análisis":
+    st.markdown("<h1>Análisis Colorimétrico Digital</h1>",unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{MUTED};margin-top:-6px;font-size:.85rem;'>Calibración, cuantificación y evaluación normativa por imágenes RGB.</p>",unsafe_allow_html=True)
 
     tab_cap, tab_proc, tab_cal, tab_rep = st.tabs(
-        ["Captura", "Procesamiento", "Calibracion", "Reporte"])
+        ["Captura", "Procesamiento", "Calibración", "Reporte"])
 
     # ── TAB 1: CAPTURA ──────────────────────────────────────────────────────
     with tab_cap:
@@ -979,13 +1028,17 @@ if pagina=="Analisis":
             if uf:
                 loaded=load_image(uf)
                 if loaded is not None:
-                    st.session_state["image"]=loaded; st.session_state["rois"]=[]; st.session_state["_asgn_fp"]=""
+                    st.session_state["image"]=loaded; st.session_state["rois"]=[]
+                    st.session_state["_asgn_fp"]=""
+                    st.session_state["selected_channel"]="G_norm"
         with c2:
-            cam=st.camera_input("Capturar con camara",label_visibility="collapsed")
+            cam=st.camera_input("Capturar con cámara",label_visibility="collapsed")
             if cam:
                 loaded=load_image(cam)
                 if loaded is not None:
-                    st.session_state["image"]=loaded; st.session_state["rois"]=[]; st.session_state["_asgn_fp"]=""
+                    st.session_state["image"]=loaded; st.session_state["rois"]=[]
+                    st.session_state["_asgn_fp"]=""
+                    st.session_state["selected_channel"]="G_norm"
 
         if st.session_state["image"] is None:
             ibox("Cargue o capture una imagen para comenzar.")
@@ -1008,12 +1061,12 @@ if pagina=="Analisis":
         with st.expander("Control de calidad de imagen", expanded=any(v["grade"]!="ok" for v in qc.values())):
             st.markdown(qc_html, unsafe_allow_html=True)
             if any(v["grade"]=="fail" for v in qc.values()):
-                wbox("Una o mas metricas de calidad estan fuera del rango recomendado. Se recomienda repetir la captura.")
+                wbox("Una o más métricas de calidad están fuera del rango recomendado. Se recomienda repetir la captura.")
             elif any(v["grade"]=="warn" for v in qc.values()):
-                st.markdown(f'<div class="info-box">Algunas metricas requieren revision. Los resultados pueden ser validos pero verificar condiciones de captura.</div>',unsafe_allow_html=True)
+                st.markdown(f'<div class="info-box">Algunas métricas requieren revisión. Los resultados pueden ser válidos pero verificar condiciones de captura.</div>',unsafe_allow_html=True)
 
         st.markdown(f"<hr style='border-color:{BORDER};margin:16px 0;'>",unsafe_allow_html=True)
-        slbl("Paso 2 — Definir regiones de interes (ROIs)")
+        slbl("Paso 2 — Definir regiones de interés (ROIs)")
 
         ctrl_col,img_col=st.columns([1,1],gap="large")
 
@@ -1023,27 +1076,35 @@ if pagina=="Analisis":
                              key="dev_sel")
             st.session_state["device_type"]=dev
 
-            # ROIs circulares (solo microplaca)
-            use_circular = False
-            if dev == "Microplaca de 96 pocillos":
-                use_circular = st.toggle("Usar ROIs circulares (reducen ruido de fondo)", value=st.session_state.get("use_circular",False), key="circ_tog")
-                st.session_state["use_circular"] = use_circular
-                if use_circular:
-                    global_diam = st.slider("Diametro global de pocillo (px)", 6, 80, st.session_state.get("global_diam",18), key="g_diam")
-                    st.session_state["global_diam"] = global_diam
-                    ibox("Las ROIs circulares excluyen pixeles de fondo y bordes, mejorando la relacion señal/ruido.")
+            is_plate = (dev == "Microplaca de 96 pocillos")
+            # Forzar circular en microplaca
+            use_circular = is_plate  # Siempre circular en microplaca
+            if not is_plate:
+                use_circular = st.toggle("Usar ROIs circulares (reducen ruido de fondo)",
+                                         value=st.session_state.get("use_circular",False), key="circ_tog")
+            st.session_state["use_circular"] = use_circular
 
-            # Mensaje de coordenadas recomendadas según dispositivo
-            if dev == "Microplaca de 96 pocillos":
+            # Diámetro global (solo si circular está activo)
+            if use_circular:
+                global_diam = st.slider("Diámetro global de pocillo (px)", 6, 80,
+                                        st.session_state.get("global_diam",18), key="g_diam")
+                st.session_state["global_diam"] = global_diam
+                if is_plate:
+                    st.markdown('<div class="info-box">En microplaca los ROIs son circulares por defecto.</div>',
+                                unsafe_allow_html=True)
+            else:
+                global_diam = None
+
+            # Mensajes de coordenadas recomendadas según dispositivo
+            if is_plate:
                 st.markdown(
                     '<div class="info-box">'
                     '<b>Coordenadas recomendadas para microplaca:</b><br>'
-                    'X inicial: <b>107 px</b> &nbsp;|&nbsp; '
-                    'Y inicial: <b>74 px</b> &nbsp;|&nbsp; '
-                    'Ancho pocillo: <b>20 px</b> &nbsp;|&nbsp; '
-                    'Alto pocillo: <b>18 px</b> &nbsp;|&nbsp; '
-                    'Espaciado X: <b>65 px</b> &nbsp;|&nbsp; '
-                    'Espaciado Y: <b>59 px</b>'
+                    'X inicial: <b>318 px</b> &nbsp;|&nbsp; '
+                    'Y inicial: <b>228 px</b> &nbsp;|&nbsp; '
+                    'Diámetro pocillo: <b>60 px</b> &nbsp;|&nbsp; '
+                    'Espaciado X: <b>170 px</b> &nbsp;|&nbsp; '
+                    'Espaciado Y: <b>170 px</b>'
                     '</div>',
                     unsafe_allow_html=True)
             elif dev == "Viales lineales":
@@ -1057,12 +1118,12 @@ if pagina=="Analisis":
                     'Espaciado Y: <b>108 px</b>'
                     '</div>',
                     unsafe_allow_html=True)
+
             freeze=st.toggle("Bloquear ROIs",value=st.session_state["freeze_rois"],key="frz")
             st.session_state["freeze_rois"]=freeze
 
             if not freeze:
-                # Sin st.form — cada slider genera un rerun inmediato
-                # → imagen actualiza en tiempo real mientras se ajustan coordenadas
+                # Generar ROIs en tiempo real según dispositivo
                 if dev=="Viales lineales":
                     n  = st.number_input("N de viales",2,24,6,1,key="vn")
                     x0 = st.slider("X inicial (px)",0,W-1,int(W*.05),key="vx0")
@@ -1073,16 +1134,17 @@ if pagina=="Analisis":
                     dy = st.slider("Espaciado Y (px)",0,300,0,key="vdy")
                     rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
 
-                elif dev=="Microplaca de 96 pocillos":
-                    x0   = st.slider("X inicial (px)",0,W-1,int(W*.05),key="px0")
-                    y0   = st.slider("Y inicial (px)",0,H-1,int(H*.05),key="py0")
-                    rw   = st.slider("Ancho pocillo (px)",4,80,20,key="prw")
-                    rh   = st.slider("Alto pocillo (px)", 4,80,20,key="prh")
-                    dx   = st.slider("Espaciado X (px)",10,200,50,key="pdx")
-                    dy   = st.slider("Espaciado Y (px)",10,200,50,key="pdy")
-                    rows_n=st.number_input("Filas",   1,8, 8,1,key="prows")
-                    cols_n=st.number_input("Columnas",1,12,12,1,key="pcols")
-                    rois=gen_rois_plate(x0,y0,rw,rh,dx,dy,int(rows_n),int(cols_n))
+                elif is_plate:
+                    # Microplaca: ocultar ancho/alto, mostrar diámetro, usar w=h=global_diam
+                    diam = st.session_state.get("global_diam", 60)
+                    n_rows = st.number_input("Filas", 1,8, 8,1,key="prows")
+                    n_cols = st.number_input("Columnas",1,12,12,1,key="pcols")
+                    x0 = st.slider("X inicial (px)",0,W-1,318,key="px0")
+                    y0 = st.slider("Y inicial (px)",0,H-1,228,key="py0")
+                    dx = st.slider("Espaciado X (px)",10,300,170,key="pdx")
+                    dy = st.slider("Espaciado Y (px)",10,300,170,key="pdy")
+                    # w y h igual al diámetro (para bounding box del círculo)
+                    rois=gen_rois_plate(x0,y0,diam,diam,dx,dy,int(n_rows),int(n_cols))
 
                 else:  # Personalizado
                     n  = st.number_input("N de ROIs",2,50,6,1,key="cn")
@@ -1102,9 +1164,10 @@ if pagina=="Analisis":
 
         with img_col:
             rois=st.session_state.get("rois",[])
-            use_circ=st.session_state.get("use_circular",False)
-            diam_map={r["label"]:st.session_state.get("global_diam",18) for r in rois}
+            use_circ = st.session_state.get("use_circular",False)
+            diam_map = {r["label"]: st.session_state.get("global_diam",18) for r in rois} if use_circ else None
             if rois:
+                # Asegurar persistencia de asignación
                 ensure_asgn(rois)
                 tm=dict(zip(st.session_state["assignment_df"]["ROI"],
                             st.session_state["assignment_df"]["Tipo"]))
@@ -1132,14 +1195,18 @@ if pagina=="Analisis":
     with tab_proc:
         rois=st.session_state.get("rois",[]); img=st.session_state.get("image")
         if not rois or img is None:
-            wbox("Defina las ROIs en la pestana Captura primero."); footer(); st.stop()
+            wbox("Defina las ROIs en la pestaña Captura primero."); footer(); st.stop()
+        # Leer ROIs desde session_state, no regenerar
         ensure_asgn(rois)
         fp=roi_fp(rois)
         slbl("Paso 3 — Asignar tipos y concentraciones")
-        ibox("Asigne BLANK=Blanco, STD=Estandar, SMP=Muestra. Pocillos de la misma columna forman triplicados.")
+        ibox("Asigne BLANK=Blanco, STD=Estándar, SMP=Muestra. Pocillos de la misma columna forman triplicados.")
 
         dev=st.session_state.get("device_type","")
         is_plate=(dev=="Microplaca de 96 pocillos")
+        use_circ = st.session_state.get("use_circular",False)
+        diam_map = {r["label"]: st.session_state.get("global_diam",18) for r in rois} if use_circ else None
+
         tbl_col,vis_col=st.columns([6,5] if is_plate else [1,1],gap="large")
 
         with tbl_col:
@@ -1161,13 +1228,11 @@ if pagina=="Analisis":
             else: wbox("Sin blanco asignado.")
 
         with vis_col:
-            # ── Imagen anotada — siempre visible, siempre actualizada ──────
-            # draw_rois usa 'edited' del rerun actual → refleja cambios al instante
+            # Overlay siempre actualizado
             tm2=dict(zip(edited["ROI"],edited["Tipo"]))
-            ann2=draw_rois(img,rois,tm2)
+            ann2=draw_rois(img,rois,tm2,circular=use_circ,diam_map=diam_map)
             st.session_state["annotated_img"]=ann2
 
-            # Leyenda de colores
             legend=" ".join(
                 f'<span style="background:{c};color:{TEXT};padding:2px 8px;'
                 f'border-radius:3px;font-size:.7rem;font-weight:700;margin-right:3px;">'
@@ -1175,21 +1240,14 @@ if pagina=="Analisis":
                 for t,c in TIPO_COLORS.items() if t!="Sin asignar")
             st.markdown(f'<p class="slbl">Overlay en tiempo real</p>',unsafe_allow_html=True)
             st.markdown(legend,unsafe_allow_html=True)
-
-            # IMAGEN PRINCIPAL — siempre al frente, nunca dentro de un tab
-            st.image(ann2,
-                     caption="Los colores se actualizan al instante al editar la tabla",
+            st.image(ann2, caption="Los colores se actualizan al instante al editar la tabla",
                      use_container_width=True)
 
-            # Grid abstracto de placa — secundario, colapsable
             if is_plate:
                 tri_grp=detect_triplicates(edited)
                 st.session_state["tri_groups"]=tri_grp
-                with st.expander("Grid 8x12 — distribucion de pocillos",expanded=False):
-                    st.plotly_chart(
-                        plot_plate(edited,tri_grp),
-                        use_container_width=True,
-                        key="plate_grid_exp")
+                with st.expander("Grid 8x12 — distribución de pocillos",expanded=False):
+                    st.plotly_chart(plot_plate(edited,tri_grp), use_container_width=True, key="plate_grid_exp")
                 if tri_grp:
                     n_g=len(tri_grp); n_w=sum(len(v) for v in tri_grp.values())
                     ibox(f"<b>{n_g} grupos de triplicados</b> ({n_w} pocillos detectados).")
@@ -1204,172 +1262,199 @@ if pagina=="Analisis":
         blank=st.session_state.get("blank_label")
 
         with st.expander("Fundamento — absorbancia digital",expanded=False):
-            st.markdown("**A_dig = log₁₀(I_blanco / I_muestra)**\n\nDonde I es la intensidad normalizada del canal seleccionado (% del total R+G+B). El sistema evalua los 3 canales y selecciona automaticamente el de mayor R².")
+            st.markdown("**A_dig = log₁₀(I_blanco / I_muestra)**\n\nDonde I es la intensidad normalizada del canal seleccionado (% del total R+G+B). El sistema evalúa los canales y permite elegir el óptimo.")
 
         if st.button("Extraer RGB y calibrar",key="btn_cal"):
             with st.spinner("Procesando canales de color..."):
-                use_circ=st.session_state.get("use_circular",False)
-                diam_map={r["label"]:st.session_state.get("global_diam",18) for r in rois}
+                use_circ = st.session_state.get("use_circular",False)
+                diam_map = {r["label"]: st.session_state.get("global_diam",18) for r in rois} if use_circ else None
 
-                # Extraccion extendida (RGB + HSV + LAB)
                 df_ext = extract_extended_channels(img, rois, circular=use_circ, diam_map=diam_map)
-                df_norm= normalize_rgb(df_ext)
+                df_norm = normalize_rgb(df_ext)
                 df_abs = calc_absorbance(df_norm, blank)
 
-                # Merge con assignment — UNA SOLA VEZ
-                df_merged=df_abs.merge(
+                df_merged = df_abs.merge(
                     adf[["ROI","Tipo","Nombre","Concentracion","Unidad","Analito","Factor_dil"]],
                     on="ROI",how="left")
-                bch,ch_res=best_channel(df_merged)
+                bch,ch_res = best_channel(df_merged)
                 st.session_state.update(dict(df_rgb=df_ext,df_norm=df_norm,df_abs=df_abs,
                                              df_merged=df_merged,best_ch=bch,all_ch=ch_res))
-                if bch in ch_res and len(df_merged[df_merged["Tipo"]=="Estandar"])>=2:
-                    cal=ch_res[bch]
-                    bsigs=df_merged.loc[df_merged["Tipo"]=="Blanco",f"A_{bch}"].dropna().values
-                    ld,lq,proxy=calc_lod_loq(cal,bsigs if len(bsigs)>=2 else None)
-                    cal.update({"LOD":ld,"LOQ":lq,"lod_proxy":proxy})
-                    std=df_merged[df_merged["Tipo"]=="Estandar"]
-                    concs=std["Concentracion"].values.astype(float)
-                    sigs=std[f"A_{bch}"].values.astype(float)
-                    unit=std["Unidad"].iloc[0] if not std.empty else "mg/L"
-                    an=std["Analito"].iloc[0]  if not std.empty else "Analito"
-                    png=cal_to_png(cal,concs,sigs,bch,an,unit,ld,lq)
-                    cf=plot_cal(concs,sigs,cal,bch,an,unit,ld,lq)
-                    rf=plot_residuals(concs,cal,bch)
-                    # FIX: usa df_merged directamente para triplicados (sin doble merge)
-                    tg=st.session_state.get("tri_groups",{}) or detect_triplicates(adf)
-                    td=triplate_stats(df_merged,tg,f"A_{bch}") if tg else None
-                    st.session_state.update(dict(cal_result=cal,cal_fig=cf,res_fig=rf,
-                                                 cal_concs=concs,cal_sigs=sigs,cal_unit=unit,
-                                                 cal_analyte=an,cal_ch=bch,cal_png=png,
-                                                 tri_df=td))
-                    okbox("Calibracion completada.")
-                else:
-                    std_check = df_merged[df_merged["Tipo"]=="Estandar"]
-                    n_std = len(std_check)
-                    if n_std < 2:
-                        wbox(f"Se necesitan al menos 2 pocillos tipo <b>Estandar</b>. "
-                             f"Actualmente hay {n_std}. Asigne tipos en la pestana Procesamiento.")
-                    else:
-                        concs_check = std_check["Concentracion"].dropna().values.astype(float)
-                        n_unique = len(set(concs_check))
-                        if n_unique < 2:
-                            wbox("Todos los estandares tienen la misma concentracion "
-                                 f"({concs_check[0] if len(concs_check)>0 else 0}). "
-                                 "Ingrese al menos 2 niveles de concentracion distintos en la tabla.")
-                        else:
-                            wbox("No fue posible ajustar la calibracion. "
-                                 "Verifique que los estandares tengan concentraciones distintas "
-                                 "y que exista un blanco asignado.")
+                # Inicialmente seleccionamos el mejor canal, pero permitiremos cambio manual
+                st.session_state["selected_channel"] = bch
+                okbox("Extracción completada. Revise el barrido de canales y seleccione el canal final.")
 
-        cal=st.session_state.get("cal_result")
+        ch_res = st.session_state.get("all_ch",{})
+        df_merged = st.session_state.get("df_merged")
+        if df_merged is not None and ch_res:
+            st.markdown("### Barrido de canales")
+            # Selector manual de canal
+            available_channels = [c for c in ALL_CHANNELS if c in ch_res]
+            if not available_channels:
+                available_channels = list(ch_res.keys())
+            if available_channels:
+                sel_ch = st.selectbox(
+                    "Canal para calibración final",
+                    options=available_channels,
+                    index=available_channels.index(st.session_state.get("selected_channel", available_channels[0])),
+                    format_func=lambda x: CHANNEL_LABELS.get(x,x),
+                    key="channel_selector"
+                )
+                st.session_state["selected_channel"] = sel_ch
+
+                # Recalcular calibración para el canal seleccionado
+                std = df_merged[df_merged["Tipo"]=="Estándar"]
+                if len(std)>=2 and f"A_{sel_ch}" in std.columns:
+                    concs = std["Concentracion"].values.astype(float)
+                    sigs = std[f"A_{sel_ch}"].values.astype(float)
+                    cal = fit_line(concs, sigs)
+                    if cal:
+                        bsigs = df_merged.loc[df_merged["Tipo"]=="Blanco", f"A_{sel_ch}"].dropna().values
+                        ld, lq, proxy = calc_lod_loq(cal, bsigs if len(bsigs)>=2 else None)
+                        cal.update({"LOD":ld,"LOQ":lq,"lod_proxy":proxy})
+                        unit = std["Unidad"].iloc[0] if not std.empty else "mg/L"
+                        an = std["Analito"].iloc[0]  if not std.empty else "Analito"
+                        png = cal_to_png(cal, concs, sigs, sel_ch, an, unit, ld, lq)
+                        cf = plot_cal(concs, sigs, cal, sel_ch, an, unit, ld, lq)
+                        rf = plot_residuals(concs, cal, sel_ch)
+                        tg = st.session_state.get("tri_groups",{}) or detect_triplicates(adf)
+                        td = triplate_stats(df_merged, tg, f"A_{sel_ch}") if tg else None
+                        st.session_state.update(dict(cal_result=cal, cal_fig=cf, res_fig=rf,
+                                                     cal_concs=concs, cal_sigs=sigs, cal_unit=unit,
+                                                     cal_analyte=an, cal_ch=sel_ch, cal_png=png,
+                                                     tri_df=td))
+                        st.success(f"Calibración actualizada para canal {sel_ch}")
+
+            # Mostrar gráficas de barrido (si hay datos)
+            if ch_res:
+                # Mostrar comparativa de canales
+                st.plotly_chart(plot_channels(ch_res), use_container_width=True)
+                df_ch_tbl = plot_channel_table(ch_res)
+                st.dataframe(df_ch_tbl, use_container_width=True, hide_index=True)
+
+                # Mostrar gráficas individuales para los canales principales
+                std = df_merged[df_merged["Tipo"]=="Estándar"]
+                if len(std)>=2 and "Concentracion" in std.columns:
+                    concs_all = std["Concentracion"].values.astype(float)
+                    cols_to_plot = [c for c in ["R_norm","G_norm","B_norm"] if c in ch_res]
+                    if cols_to_plot:
+                        st.markdown("**Respuesta individual de canales RGB**")
+                        tab_r, tab_g, tab_b = st.tabs(["Rojo", "Verde", "Azul"])
+                        for ch, tab in zip(cols_to_plot, [tab_r, tab_g, tab_b]):
+                            with tab:
+                                if f"A_{ch}" in df_merged.columns:
+                                    sigs_ch = std[f"A_{ch}"].dropna().values
+                                    cal_ch = ch_res.get(ch)
+                                    if cal_ch:
+                                        fig_ch = plot_cal(concs_all, sigs_ch, cal_ch, ch,
+                                                          std["Analito"].iloc[0], std["Unidad"].iloc[0],
+                                                          cal_ch.get("LOD",np.nan), cal_ch.get("LOQ",np.nan))
+                                        st.plotly_chart(fig_ch, use_container_width=True)
+                                        r2_i, _ = interpret_r2(cal_ch["r2"])
+                                        st.write(f"R²: {cal_ch['r2']:.5f} → {r2_i}")
+
+            # Mensaje sobre pendiente negativa
+            cal = st.session_state.get("cal_result")
+            if cal:
+                slope_msg, slope_col = interpret_slope(cal["m"])
+                st.markdown(
+                    f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};'
+                    f'border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;'
+                    f'color:{TEXT};margin:8px 0;line-height:1.5;">'
+                    f'<b>Pendiente {cal["m"]:+.4f}:</b> {slope_msg}</div>',
+                    unsafe_allow_html=True)
+
+        # Calibración final y cuantificación
+        cal = st.session_state.get("cal_result")
         if cal:
-            bch=st.session_state["best_ch"]; ch_res=st.session_state["all_ch"]
-            unit=st.session_state.get("cal_unit","mg/L")
-            ld=cal.get("LOD",float("nan")); lq=cal.get("LOQ",float("nan"))
-            r2_int=interpret_r2(cal["r2"])
+            sel_ch = st.session_state.get("selected_channel","G_norm")
+            unit = st.session_state.get("cal_unit","mg/L")
+            ld = cal.get("LOD",float("nan")); lq = cal.get("LOQ",float("nan"))
+            r2_int = interpret_r2(cal["r2"])
 
             st.markdown(f"<hr style='border-color:{BORDER};margin:16px 0;'>",unsafe_allow_html=True)
-            slbl("Metricas de calibracion")
+            slbl("Métricas de calibración final")
             c1,c2,c3,c4=st.columns(4)
             mc("R²",f"{cal['r2']:.5f}",interpret=r2_int,explain=STAT_EXPL["R2"],col=c1)
             mc("Pendiente m",f"{cal['m']:.4f}",explain=STAT_EXPL["slope"],col=c2)
             mc("LOD",f"{ld:.3f}" if not math.isnan(ld) else "N/D",explain=STAT_EXPL["LOD"],col=c3)
             mc("LOQ",f"{lq:.3f}" if not math.isnan(lq) else "N/D",explain=STAT_EXPL["LOQ"],col=c4)
 
-            if cal.get("lod_proxy"): ibox("LOD/LOQ calculados con error residual como proxy. Incluya replicas del blanco para mayor rigor.")
+            if cal.get("lod_proxy"): ibox("LOD/LOQ calculados con error residual como proxy. Incluya réplicas del blanco para mayor rigor.")
 
-            # Interpretacion de pendiente
-            slope_msg, slope_col = interpret_slope(cal["m"])
-            st.markdown(
-                f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};'
-                f'border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;'
-                f'color:{TEXT};margin:8px 0;line-height:1.5;">'
-                f'<b>Pendiente {cal["m"]:+.4f}:</b> {slope_msg}</div>',
-                unsafe_allow_html=True)
-
-            t1,t2,t3=st.tabs(["Curva de calibracion","Residuos","Barrido de canales"])
+            t1,t2 = st.tabs(["Curva de calibración","Residuos"])
             with t1:
                 if st.session_state.get("cal_fig"): st.plotly_chart(st.session_state["cal_fig"],use_container_width=True)
             with t2:
                 if st.session_state.get("res_fig"):
                     st.plotly_chart(st.session_state["res_fig"],use_container_width=True)
-                    ibox("Residuos aleatorios alrededor de cero = buen ajuste. Patron sistematico = no-linealidad.")
-            with t3:
-                if ch_res:
-                    st.plotly_chart(plot_channels(ch_res),use_container_width=True)
-                    df_ch_tbl = plot_channel_table(ch_res)
-                    st.dataframe(df_ch_tbl,use_container_width=True,hide_index=True)
-                    st.markdown(f"<p style='color:{MUTED};font-size:.78rem;'>"
-                                f"Se evaluaron {len(ch_res)} canales (RGB, HSV, CIELAB). "
-                                f"Canal recomendado por mayor R²: <b style='color:{SUCCESS};'>"
-                                f"{CHANNEL_LABELS.get(bch,bch)}</b></p>",
-                                unsafe_allow_html=True)
+                    ibox("Residuos aleatorios alrededor de cero = buen ajuste. Patrón sistemático = no-linealidad.")
 
             if st.session_state.get("tri_df") is not None:
                 td=st.session_state["tri_df"]
                 if not td.empty:
-                    with st.expander("Estadisticas de triplicados",expanded=True):
+                    with st.expander("Estadísticas de triplicados",expanded=True):
                         st.dataframe(td,use_container_width=True,hide_index=True)
                         bad=td[td["CV_%"]>10] if "CV_%" in td.columns else pd.DataFrame()
-                        if not bad.empty: wbox(f"CV% > 10% en columnas: {', '.join(bad['Grupo'].tolist())}. Revisar tecnica.")
+                        if not bad.empty: wbox(f"CV% > 10% en columnas: {', '.join(bad['Grupo'].tolist())}. Revisar técnica.")
 
             with st.expander("Tabla de absorbancias digitales"):
                 dm=st.session_state.get("df_merged")
                 if dm is not None:
-                    cols=[c for c in ["ROI","Tipo","Concentracion","R_norm","G_norm","B_norm",f"A_{bch}"] if c in dm.columns]
+                    cols=[c for c in ["ROI","Tipo","Concentracion","R_norm","G_norm","B_norm",f"A_{sel_ch}"] if c in dm.columns]
                     st.dataframe(dm[cols].round(4),use_container_width=True)
                     st.download_button("Descargar CSV",dm[cols].to_csv(index=False).encode(),"elementa_datos.csv","text/csv")
 
         st.markdown(f"<hr style='border-color:{BORDER};margin:20px 0;'>",unsafe_allow_html=True)
-        slbl("Cuantificacion de muestras")
-        meth=st.radio("Metodo",["Calibracion externa","Adicion de estandar"],horizontal=True)
+        slbl("Cuantificación de muestras")
+        meth=st.radio("Método",["Calibración externa","Adición de estándar"],horizontal=True)
 
-        if meth=="Calibracion externa":
+        if meth=="Calibración externa":
             if st.button("Calcular concentraciones",key="btn_q"):
-                cal=st.session_state.get("cal_result"); dm=st.session_state.get("df_merged")
-                bch=st.session_state.get("best_ch","G_norm")
-                if cal is None or dm is None: st.error("Ejecute primero la calibracion."); st.stop()
-                m,b=cal["m"],cal["b"]
-                samples=dm[dm["Tipo"]=="Muestra"].copy(); res=[]
-                for _,row in samples.iterrows():
-                    a=row.get(f"A_{bch}",float("nan")); dil=float(row.get("Factor_dil",1) or 1)
-                    c_r=(a-b)/m if not math.isnan(a) and abs(m)>1e-12 else float("nan")
-                    c_c=c_r*dil if not math.isnan(c_r) else float("nan")
-                    res.append({"Muestra":str(row.get("Nombre","")) or row["ROI"],"ROI":row["ROI"],
-                                "Canal":bch,"A_digital":round(a,4) if not math.isnan(a) else None,
-                                "Conc_calc":round(c_r,3) if not math.isnan(c_r) else None,
-                                "Factor_dil":dil,"Conc_corregida":round(c_c,3) if not math.isnan(c_c) else None,
-                                "Unidad":str(row.get("Unidad","mg/L")),"Analito":str(row.get("Analito",""))})
-                df_res=pd.DataFrame(res); st.session_state["df_results"]=df_res
-                st.dataframe(df_res,use_container_width=True,hide_index=True)
-                st.download_button("Descargar resultados CSV",df_res.to_csv(index=False).encode(),"elementa_resultados.csv","text/csv")
+                cal = st.session_state.get("cal_result")
+                dm = st.session_state.get("df_merged")
+                sel_ch = st.session_state.get("selected_channel","G_norm")
+                if cal is None or dm is None:
+                    st.error("Seleccione un canal y calibre primero.")
+                else:
+                    m,b=cal["m"],cal["b"]
+                    samples=dm[dm["Tipo"]=="Muestra"].copy(); res=[]
+                    for _,row in samples.iterrows():
+                        a=row.get(f"A_{sel_ch}",float("nan")); dil=float(row.get("Factor_dil",1) or 1)
+                        c_r=(a-b)/m if not math.isnan(a) and abs(m)>1e-12 else float("nan")
+                        c_c=c_r*dil if not math.isnan(c_r) else float("nan")
+                        res.append({"Muestra":str(row.get("Nombre","")) or row["ROI"],"ROI":row["ROI"],
+                                    "Canal":sel_ch,"A_digital":round(a,4) if not math.isnan(a) else None,
+                                    "Conc_calc":round(c_r,3) if not math.isnan(c_r) else None,
+                                    "Factor_dil":dil,"Conc_corregida":round(c_c,3) if not math.isnan(c_c) else None,
+                                    "Unidad":str(row.get("Unidad","mg/L")),"Analito":str(row.get("Analito",""))})
+                    df_res=pd.DataFrame(res); st.session_state["df_results"]=df_res
+                    st.dataframe(df_res,use_container_width=True,hide_index=True)
+                    st.download_button("Descargar resultados CSV",df_res.to_csv(index=False).encode(),"elementa_resultados.csv","text/csv")
         else:
-            ibox("Ingrese la senal de la muestra (C_anadida=0) y las adiciones.")
-            n_add=st.number_input("N adiciones",2,8,3); sa_data=[{"C_anadida":0.0,"Senal":0.0}]+[{"C_anadida":0.0,"Senal":0.0} for _ in range(int(n_add))]
+            ibox("Ingrese la señal de la muestra (C_añadida=0) y las adiciones.")
+            n_add=st.number_input("N adiciones",2,8,3); sa_data=[{"C_añadida":0.0,"Señal":0.0}]+[{"C_añadida":0.0,"Señal":0.0} for _ in range(int(n_add))]
             sa_ed=st.data_editor(pd.DataFrame(sa_data),column_config={
-                "C_anadida":st.column_config.NumberColumn("C añadida",step=0.001,format="%.4f"),
-                "Senal":st.column_config.NumberColumn("Señal",step=0.0001,format="%.5f")},
+                "C_añadida":st.column_config.NumberColumn("C añadida",step=0.001,format="%.4f"),
+                "Señal":st.column_config.NumberColumn("Señal",step=0.0001,format="%.5f")},
                 num_rows="fixed",use_container_width=True,key="sa_ed")
-            if st.button("Calcular por adicion de estandar",key="btn_sa"):
-                sa=std_addition(sa_ed["C_anadida"].values,sa_ed["Senal"].values)
-                if sa is None: st.error("No fue posible ajustar la regresion.")
+            if st.button("Calcular por adición de estándar",key="btn_sa"):
+                sa=std_addition(sa_ed["C_añadida"].values,sa_ed["Señal"].values)
+                if sa is None: st.error("No fue posible ajustar la regresión.")
                 else:
                     st.session_state["sa_result"]=sa
                     an2=st.session_state.get("cal_analyte","Analito"); unit2=st.session_state.get("cal_unit","mg/L")
-                    sf=plot_sa(sa_ed["C_anadida"].values,sa_ed["Senal"].values,sa,an2,unit2)
+                    sf=plot_sa(sa_ed["C_añadida"].values,sa_ed["Señal"].values,sa,an2,unit2)
                     st.session_state["sa_fig"]=sf
-                    mc("Concentracion estimada",f"{sa['c_sample']:.3f} {unit2}",
+                    mc("Concentración estimada",f"{sa['c_sample']:.3f} {unit2}",
                        interpret=(f"R² = {sa['r2']:.4f}",SUCCESS))
                     st.plotly_chart(sf,use_container_width=True)
         footer()
 
     # ── TAB 4: REPORTE ──────────────────────────────────────────────────────
     with tab_rep:
-        slbl("Evaluacion normativa")
-        wbox("Verificar siempre los limites en la version oficial vigente (DOF). Valores mostrados son referenciales.")
+        slbl("Evaluación normativa")
+        wbox("Verificar siempre los límites en la versión oficial vigente (DOF). Valores mostrados son referenciales.")
         df_res=st.session_state.get("df_results"); sa_r=st.session_state.get("sa_result")
-
         if df_res is not None and not df_res.empty:
             for _,row in df_res.iterrows():
                 try:
@@ -1377,54 +1462,66 @@ if pagina=="Analisis":
                     st.markdown(f"**{row['Muestra']}** — {an}: `{cv:.3f} {row['Unidad']}`")
                     for ev in norm_eval(an,cv):
                         ls=f"{ev['limite']:.3g} mg/L" if ev["limite"] else "—"
-                        bd=ev["badge"]; st=ev["status"]; nr=ev["norma"]
-                        badge=ev["badge"]; status=ev["status"]; norma=ev["norma"]
-                        st.markdown(f"&nbsp;&nbsp;<span class='badge-{badge}'>{status}</span> <span style='color:{MUTED};font-size:.82rem;'>{norma} | Limite: {ls}</span>",unsafe_allow_html=True)
+                        st.markdown(f"&nbsp;&nbsp;<span class='badge-{ev['badge']}'>{ev['status']}</span> <span style='color:{MUTED};font-size:.82rem;'>{ev['norma']} | Límite: {ls}</span>",unsafe_allow_html=True)
                 except: pass
         elif sa_r:
             an3=st.session_state.get("cal_analyte",""); unit3=st.session_state.get("cal_unit","mg/L")
             cv3=sa_r["c_sample"]
-            st.markdown(f"**Adicion de estandar** — {an3}: `{cv3:.3f} {unit3}`")
+            st.markdown(f"**Adición de estándar** — {an3}: `{cv3:.3f} {unit3}`")
             for ev in norm_eval(an3,cv3):
                 ls=f"{ev['limite']:.3g} mg/L" if ev["limite"] else "—"
-                badge2=ev["badge"]; status2=ev["status"]; norma2=ev["norma"]
-                st.markdown(f"&nbsp;&nbsp;<span class='badge-{badge2}'>{status2}</span> <span style='color:{MUTED};font-size:.82rem;'>{norma2} | Limite: {ls}</span>",unsafe_allow_html=True)
+                st.markdown(f"&nbsp;&nbsp;<span class='badge-{ev['badge']}'>{ev['status']}</span> <span style='color:{MUTED};font-size:.82rem;'>{ev['norma']} | Límite: {ls}</span>",unsafe_allow_html=True)
         else:
-            ibox("Complete la cuantificacion en la pestana Calibracion.")
+            ibox("Complete la cuantificación en la pestaña Calibración.")
 
         st.markdown(f"<hr style='border-color:{BORDER};margin:20px 0;'>",unsafe_allow_html=True)
         slbl("Exportar reporte PDF")
         adf2=st.session_state.get("assignment_df")
         an_pdf=adf2["Analito"].iloc[0] if adf2 is not None and not adf2.empty else "N/D"
         unit_pdf=adf2["Unidad"].iloc[0]  if adf2 is not None and not adf2.empty else "mg/L"
-        meth_pdf="Adicion de estandar" if sa_r else "Calibracion externa"
+        meth_pdf="Adición de estándar" if sa_r else "Calibración externa"
+        sel_ch = st.session_state.get("selected_channel","G_norm")
 
         if st.button("Generar reporte PDF",key="btn_pdf"):
-            cal_png=st.session_state.get("cal_png")
+            cal_png = st.session_state.get("cal_png")
+            # Si no hay cal_png, generarlo nuevamente
             if cal_png is None:
-                c2=st.session_state.get("cal_result")
-                if c2:
-                    cal_png=cal_to_png(c2,st.session_state.get("cal_concs"),
-                                       st.session_state.get("cal_sigs"),
-                                       st.session_state.get("cal_ch",""),
-                                       an_pdf,unit_pdf,
-                                       c2.get("LOD",float("nan")),c2.get("LOQ",float("nan")))
+                cal = st.session_state.get("cal_result")
+                if cal:
+                    cal_png = cal_to_png(cal, st.session_state.get("cal_concs"),
+                                         st.session_state.get("cal_sigs"),
+                                         sel_ch, an_pdf, unit_pdf,
+                                         cal.get("LOD",np.nan), cal.get("LOQ",np.nan))
+            # Generar barrido de canales PNG
+            sweep_pngs = []
+            ch_res = st.session_state.get("all_ch",{})
+            if ch_res and df_merged is not None:
+                std = df_merged[df_merged["Tipo"]=="Estándar"]
+                if len(std)>=2:
+                    concs_all = std["Concentracion"].values.astype(float)
+                    for ch in ["R_norm","G_norm","B_norm"]:
+                        if ch in ch_res and f"A_{ch}" in df_merged.columns:
+                            sigs = std[f"A_{ch}"].dropna().values
+                            cal_ch = ch_res[ch]
+                            if cal_ch:
+                                png_ch = channel_sweep_to_png(ch, cal_ch, concs_all, sigs, unit_pdf)
+                                if png_ch: sweep_pngs.append(png_ch)
             try:
-                pdf_b=gen_pdf(an_pdf,meth_pdf,
-                              st.session_state.get("df_norm"),df_res,
-                              st.session_state.get("cal_result"),
-                              st.session_state.get("annotated_img"),
-                              st.session_state.get("tri_df"),
-                              cal_png,unit_pdf)
-                b64=base64.b64encode(pdf_b).decode()
-                fname=f"Elementa_{an_pdf}_{now_mx():%Y%m%d_%H%M}.pdf"
-                href=(f'<a href="data:application/pdf;base64,{b64}" download="{fname}" '
-                      f'style="background:{ACCENT};color:white;padding:10px 24px;'
-                      f'border-radius:6px;text-decoration:none;font-weight:700;font-size:.85rem;'
-                      f'display:inline-block;margin-top:8px;">Descargar reporte PDF</a>')
+                pdf_b = gen_pdf(an_pdf,meth_pdf,
+                                st.session_state.get("df_norm"),df_res,
+                                st.session_state.get("cal_result"),
+                                st.session_state.get("annotated_img"),
+                                st.session_state.get("tri_df"),
+                                cal_png, sweep_pngs, sel_ch, unit_pdf)
+                b64 = base64.b64encode(pdf_b).decode()
+                safe_analyte = sanitize_filename(an_pdf)
+                fname = f"Elementa_{safe_analyte}_PWA_{now_mx():%Y%m%d_%H%M}.pdf"
+                href = (f'<a href="data:application/pdf;base64,{b64}" download="{fname}" '
+                        f'style="background:{ACCENT};color:white;padding:10px 24px;'
+                        f'border-radius:6px;text-decoration:none;font-weight:700;font-size:.85rem;'
+                        f'display:inline-block;margin-top:8px;">Descargar reporte PDF</a>')
                 st.markdown(href,unsafe_allow_html=True)
-                if cal_png: okbox("Grafica de calibracion incluida correctamente en el PDF.")
-                else: wbox("Calibre el metodo primero para incluir la grafica.")
+                okbox("Reporte generado exitosamente.")
             except Exception as e:
                 st.error(f"Error generando PDF: {e}")
         footer()
@@ -1434,74 +1531,74 @@ if pagina=="Analisis":
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif pagina=="Tutorial":
-    st.markdown("<h1>Guia de inicio rapido</h1>",unsafe_allow_html=True)
-    st.markdown(f"<p style='color:{MUTED};margin-top:-6px;'>Siga estos pasos para realizar su primer analisis colorimetrico con Elementa.</p>",unsafe_allow_html=True)
-
+    st.markdown("<h1>Guía de inicio rápido</h1>",unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{MUTED};margin-top:-6px;'>Siga estos pasos para realizar su primer análisis colorimétrico con Elementa.</p>",unsafe_allow_html=True)
     steps=[
-        ("Paso 1 — Preparacion de estandares y muestras",f"""
-**Prepare su serie de calibracion:**
-- Prepare al menos **5 estandares** de concentracion conocida que abarquen el rango esperado de las muestras.
+        ("Paso 1 — Preparación de estándares y muestras",f"""
+**Prepare su serie de calibración:**
+- Prepare al menos **5 estándares** de concentración conocida que abarquen el rango esperado de las muestras.
 - Incluya un **blanco de reactivos** (todos los reactivos sin analito).
-- Prepare las muestras en las mismas condiciones que los estandares (mismo volumen, pH, tiempo de reaccion).
-- Para microplaca: use el patron de distribucion recomendado — columna 1 = Blanco (A1, B1, C1), columnas 2-6 = Estandares, columnas 7+ = Muestras.
+- Prepare las muestras en las mismas condiciones que los estándares (mismo volumen, pH, tiempo de reacción).
+- Para microplaca: use el patrón de distribución recomendado — columna 1 = Blanco (A1, B1, C1), columnas 2-6 = Estándares, columnas 7+ = Muestras.
 
-**Consideraciones criticas:**
-- Tiempo de reaccion constante para todos los pozos.
+**Consideraciones críticas:**
+- Tiempo de reacción constante para todos los pozos.
 - Temperatura controlada.
-- Cubrir la placa durante la incubacion para evitar evaporacion y contaminacion.
+- Cubrir la placa durante la incubación para evitar evaporación y contaminación.
         """),
-        ("Paso 2 — Captura correcta de imagenes",f"""
+        ("Paso 2 — Captura correcta de imágenes",f"""
 **Condiciones de captura recomendadas:**
-- **Usar la caja de adquisicion Elementa** con iluminacion LED blanca difusa y fondo negro mate.
-- **Evitar iluminacion externa**: apagar luces del laboratorio o bloquear entrada de luz natural.
-- **Distancia constante**: 20-25 cm entre camara y placa (marcar la posicion en la caja).
-- **Camara paralela**: la placa debe verse sin perspectiva ni inclinacion.
-- **Modo manual**: desactivar el ajuste automatico de exposicion y balance de blancos.
-- **Formato PNG** en lugar de JPEG para evitar compresion con perdida.
-- **Esperar 2-3 segundos** antes de capturar para que la camara estabilice la exposicion.
+- **Usar la caja de adquisición Elementa** con iluminación LED blanca difusa y fondo negro mate.
+- **Evitar iluminación externa**: apagar luces del laboratorio o bloquear entrada de luz natural.
+- **Distancia constante**: 20-25 cm entre cámara y placa (marcar la posición en la caja).
+- **Cámara paralela**: la placa debe verse sin perspectiva ni inclinación.
+- **Modo manual**: desactivar el ajuste automático de exposición y balance de blancos.
+- **Formato PNG** en lugar de JPEG para evitar compresión con pérdida.
+- **Esperar 2-3 segundos** antes de capturar para que la cámara estabilice la exposición.
 
 **Indicadores de buena captura:**
 - Todos los pozos visibles y sin reflejos.
 - Colores uniformes dentro de cada pozo.
 - Sin bordes saturados (completamente blancos) ni subexpuestos (completamente negros).
         """),
-        ("Paso 3 — Verificacion de deteccion de pozos",f"""
-**En la pestana Captura > Paso 2:**
+        ("Paso 3 — Verificación de detección de pozos",f"""
+**En la pestaña Captura > Paso 2:**
 1. Seleccione el tipo de dispositivo (Microplaca o Viales).
-2. Ajuste los sliders de posicion — la imagen se actualiza en tiempo real.
+2. Ajuste los sliders de posición — la imagen se actualiza en tiempo real.
 3. Use las coordenadas recomendadas como punto de partida.
-4. Active **ROIs circulares** (microplaca) para mejor precision — excluye pixeles de fondo y bordes.
-5. Active **Bloquear ROIs** una vez que los contornos esten bien posicionados.
+4. Active **ROIs circulares** (microplaca) para mejor precisión — excluye píxeles de fondo y bordes.
+5. Active **Bloquear ROIs** una vez que los contornos estén bien posicionados.
 
 **Verificar:**
-- Cada contorno debe cubrir el contenido del pozo sin incluir el borde plastico.
-- Los colores de los contornos cambian automaticamente al asignar tipos en la siguiente pestana.
-- En la pestana Procesamiento vera el Grid inteligente con la distribucion completa.
+- Cada contorno debe cubrir el contenido del pozo sin incluir el borde plástico.
+- Los colores de los contornos cambian automáticamente al asignar tipos en la siguiente pestaña.
+- En la pestaña Procesamiento verá el Grid inteligente con la distribución completa.
         """),
         ("Paso 4 — Carga de concentraciones y tipos",f"""
-**En la pestana Procesamiento:**
+**En la pestaña Procesamiento:**
 1. Asigne el tipo a cada pocillo en la tabla: BLANK, STD, SMP, CTRL.
-2. Ingrese la concentracion conocida para cada Estandar (STD).
+2. Ingrese la concentración conocida para cada Estándar (STD).
 3. Seleccione el analito y las unidades.
-4. El grid inteligente se actualiza en tiempo real mostrando la distribucion.
-5. Los triplicados (pocillos de la misma columna) se detectan automaticamente.
+4. El grid inteligente se actualiza en tiempo real mostrando la distribución.
+5. Los triplicados (pocillos de la misma columna) se detectan automáticamente.
 
 **Consejo:** Use la columna 'Nombre' para identificar cada muestra. Estos nombres aparecen en el reporte PDF.
         """),
-        ("Paso 5 — Calibracion e interpretacion de resultados",f"""
-**Calibracion (pestana Calibracion):**
+        ("Paso 5 — Calibración e interpretación de resultados",f"""
+**Calibración (pestaña Calibración):**
 - Haga clic en **Extraer RGB y calibrar**.
-- El sistema evalua automaticamente 9 canales (R, G, B normalizados + H, S, V + L*, a*, b*).
-- Selecciona el canal con mayor R².
+- Revise el barrido de canales: R, G, B, y otros.
+- Seleccione el canal que mejor rendimiento ofrezca (mayor R², buena sensibilidad).
+- El sistema sugiere un canal, pero usted puede elegir otro.
 
-**Estadisticas clave:**
+**Estadísticas clave:**
 
-| Parametro | Descripcion | Criterio de aceptacion |
+| Parámetro | Descripción | Criterio de aceptación |
 |---|---|---|
-| **R²** | Linealidad del metodo | >= 0.995 para metodos de campo |
-| **Pendiente m** | Sensibilidad analitica | Positiva (respuesta directa) o negativa (respuesta inversa) |
-| **LOD** | Minimo detectable | Reportar muestras < LOD como "no detectado" |
-| **LOQ** | Minimo cuantificable | Muestras entre LOD y LOQ son semicuantitativas |
+| **R²** | Linealidad del método | >= 0.995 para métodos de campo |
+| **Pendiente m** | Sensibilidad analítica | Positiva (respuesta directa) o negativa (respuesta inversa) |
+| **LOD** | Mínimo detectable | Reportar muestras < LOD como "no detectado" |
+| **LOQ** | Mínimo cuantificable | Muestras entre LOD y LOQ son semicuantitativas |
 | **CV%** | Reproducibilidad triplicados | < 5% excelente; < 10% aceptable |
 
 **Interpretación de pendiente negativa:**
@@ -1511,27 +1608,24 @@ Es completamente válida en métodos como DPPH y ABTS (canal azul). El sistema l
     for title, content in steps:
         with st.expander(title, expanded=False):
             st.markdown(content)
-
     st.markdown("<hr style='border-color:#334155;margin:24px 0;'>",unsafe_allow_html=True)
-    st.markdown(f"<p style='color:{MUTED};font-size:.8rem;text-align:center;'>Lista para comenzar? Navegue a la seccion <b>Analisis</b> en el menu lateral.</p>",unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{MUTED};font-size:.8rem;text-align:center;'>¿Listo para comenzar? Navegue a la sección <b>Análisis</b> en el menú lateral.</p>",unsafe_allow_html=True)
     footer()
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  BIBLIOTECA DE MÉTODOS
 # ══════════════════════════════════════════════════════════════════════════════
 
-elif pagina=="Biblioteca de Metodos":
-    st.markdown("<h1>Biblioteca de Metodos Analiticos</h1>",unsafe_allow_html=True)
-    st.markdown(f"<p style='color:{MUTED};'>Protocolos colorimetricos preconfigurados para guiar la seleccion de canal y condiciones de analisis.</p>",unsafe_allow_html=True)
-
-    cat=st.radio("Categoria",list(PROTOCOL_LIBRARY.keys()),horizontal=True)
+elif pagina=="Biblioteca de Métodos":
+    st.markdown("<h1>Biblioteca de Métodos Analíticos</h1>",unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{MUTED};'>Protocolos colorimétricos preconfigurados para guiar la selección de canal y condiciones de análisis.</p>",unsafe_allow_html=True)
+    cat=st.radio("Categoría",list(PROTOCOL_LIBRARY.keys()),horizontal=True)
     st.divider()
-
     for nombre, proto in PROTOCOL_LIBRARY[cat].items():
         with st.expander(f"{nombre}   |   λ = {proto['lambda_ref']} nm   |   Canal sugerido: {CHANNEL_LABELS.get(proto['canal'],proto['canal'])}", expanded=False):
             col_a, col_b = st.columns([2,1])
             with col_a:
-                st.markdown(f"**Principio quimico:**  \n{proto['principio']}")
+                st.markdown(f"**Principio químico:**  \n{proto['principio']}")
                 st.markdown(f"**Observaciones:** {proto['obs']}")
                 st.markdown(f"**Referencias:** {proto['ref']}")
             with col_b:
@@ -1547,19 +1641,95 @@ elif pagina=="Biblioteca de Metodos":
                     unsafe_allow_html=True)
     footer()
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  FUNDAMENTOS
+# ══════════════════════════════════════════════════════════════════════════════
 
-    st.markdown("<h1>Fundamentos del analisis colorimetrico digital</h1>",unsafe_allow_html=True)
-    st.markdown(f"<p style='color:{MUTED};'>Base cientifica de los metodos implementados en Elementa.</p>",unsafe_allow_html=True)
-    topics={
-        "Colorimetria digital — principios y alcance":"La **colorimetria digital** cuantifica el color de imagenes para estimar la concentracion de un analito. El sensor CMOS descompone la luz en R (~580-700 nm), G (~500-580 nm) y B (~400-500 nm). A diferencia de un UV-Vis (0.1-2 nm de resolucion), las bandas son amplias (~100 nm). Por ello se usa la **absorbancia digital** A_dig = log10(I_blanco/I_muestra) como señal analitica. Ha demostrado R² > 0.99 para DPPH, ditizona, Folin-Ciocalteu y otros sistemas bajo iluminacion controlada.",
-        "Ley de Beer-Lambert y absorbancia digital":"A = ε·l·c — la absorbancia es proporcional a la concentracion. En colorimetria digital: **A_dig = log10(I_norm_blanco / I_norm_muestra)** donde I_norm es la intensidad del canal seleccionado como porcentaje del total RGB. La normalizacion porcentual reduce el efecto de variaciones globales de iluminacion.\n\nA_dig negativa: la muestra es mas intensa que el blanco — valido en DPPH/ABTS donde el analito reduce la señal de color.",
-        "Estadistica analitica: R², LOD, LOQ, CV%":"**R²** — proporcion de varianza explicada por el modelo. >= 0.999: excelente; 0.995-0.999: muy buena; < 0.995: revisar.\n\n**LOD** (3.3 sigma/|m|): concentracion minima detectable. Resultados < LOD se reportan como no detectado.\n\n**LOQ** (10 sigma/|m|): concentracion minima cuantificable con CV < 10%.\n\n**CV%** para triplicados: < 5% excelente; 5-10% aceptable; > 10% revisar tecnica.",
-        "Ensayos antioxidantes: DPPH, ABTS, FRAP":"**DPPH**: radical purpura (~515 nm). Al reducirse pierde color. Señal **decrece** con mayor capacidad antioxidante. Pendiente negativa esperada.\n\n**ABTS**: radical cation verde-azulado (~734 nm). Similar al DPPH. Resultados en equivalentes Trolox (TEAC).\n\n**FRAP**: reduce Fe3+ a Fe2+ formando complejo azul (~595 nm). Señal **crece** con mayor capacidad antioxidante.\n\n**Folin-Ciocalteu**: fenoles totales. Señal creciente. Resultados en equivalentes de acido galico (GAE).",
-        "Metales pesados: Cr(VI), Pb, Cd":"**Cr(VI)**: carcinogeno Grupo 1 (IARC). Metodo colorimetrico: 1,5-difenilcarbazida (DPC), complejo rojo-violeta (~540 nm). NOM-127-SSA1-2021: limite 0.05 mg/L Cr total.\n\n**Ditizona**: quelante selectivo para Pb (rojo-escarlata), Cd (amarillo-anaranjado), Zn, Hg, Cu. Base de kits portatiles de campo.\n\n**Bioacumulacion**: metales no biodegradables se amplifican en la cadena trofica. Limites normativos en µg/L por este motivo.",
-        "Limitaciones del smartphone como instrumento":"1. Iluminacion no controlada — usar caja de luz con LED neutro.\n2. Saturacion del sensor a intensidades altas — exposicion manual, < 230/255.\n3. Compresion JPEG — usar PNG o RAW.\n4. Variabilidad entre dispositivos — calibrar por sesion.\n5. Drift temporal — recalibrar cada sesion analitica.\n\nBuenas practicas: caja de luz, exposicion fija, balance de blancos manual, >= 5 niveles de calibracion, triplicados.",
+elif pagina=="Fundamentos":
+    st.markdown("<h1>Fundamentos del análisis colorimétrico digital</h1>",unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{MUTED};'>Base científica de los métodos implementados en Elementa.</p>",unsafe_allow_html=True)
+
+    topics = {
+        "¿Qué es una ROI?": (
+            "**Región de Interés (ROI)** es la zona de la imagen que se analiza. "
+            "En Elementa, cada ROI corresponde a un pocillo o vial. "
+            "Las ROIs pueden ser **rectangulares** (viales) o **circulares** (microplacas), "
+            "y definen el área de donde se extraen los valores de color."
+        ),
+        "¿Qué es la absorbancia digital?": (
+            "Se calcula como: **A_dig = log₁₀(I_blanco / I_muestra)**. "
+            "I_blanco es la intensidad del canal (p.ej., R_norm) en el pocillo blanco, "
+            "e I_muestra la intensidad en el pocillo de interés. "
+            "Esta transformación sigue la ley de Beer-Lambert y permite construir curvas de calibración lineales."
+        ),
+        "Barrido de canales": (
+            "El sensor de la cámara captura tres canales: Rojo (R), Verde (G) y Azul (B). "
+            "Elementa además convierte a espacios de color HSV y CIELAB, obteniendo 9 canales. "
+            "El barrido evalúa la linealidad (R²) de cada canal para elegir el más sensible al analito. "
+            "Por ejemplo, el Cr(VI) con DPC responde mejor en el canal verde."
+        ),
+        "Pendiente positiva y negativa": (
+            "Una **pendiente positiva** indica que la absorbancia aumenta con la concentración (relación directa). "
+            "Una **pendiente negativa** indica que la señal disminuye (relación inversa), lo cual es normal en ensayos como DPPH o ABTS. "
+            "Ambas son válidas analíticamente; Elementa calcula la concentración correctamente en ambos casos usando x = (A - b)/m."
+        ),
+        "¿Qué significa R²?": (
+            "El coeficiente de determinación R² mide qué tan bien los puntos experimentales se ajustan a una línea recta. "
+            "R² cercano a 1 indica excelente linealidad; valores debajo de 0.99 sugieren revisar la técnica."
+        ),
+        "LOD y LOQ": (
+            "**Límite de Detección (LOD)**: concentración mínima que puede distinguirse del ruido (3.3 σ / |m|). "
+            "**Límite de Cuantificación (LOQ)**: concentración mínima que puede medirse con precisión (10 σ / |m|). "
+            "Resultados entre LOD y LOQ son semicuantitativos."
+        ),
+        "Longitud de onda digital": (
+            "En espectrofotometría se elige una λ específica (nm). "
+            "En colorimetría digital, cada canal de color actúa como una banda ancha equivalente. "
+            "Elementa selecciona la 'longitud de onda digital' que maximiza la sensibilidad para cada analito."
+        ),
     }
-    for t,c in topics.items():
-        with st.expander(t,expanded=False): st.markdown(c)
+
+    for title, content in topics.items():
+        with st.expander(title, expanded=False):
+            st.markdown(content)
+
+    # Diagrama ilustrativo: ejemplo de ROIs y curva
+    st.markdown("### Ejemplo visual")
+    col1, col2 = st.columns(2)
+    with col1:
+        # Generar imagen de ejemplo con ROIs (usando matplotlib)
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
+        fig, ax = plt.subplots(figsize=(4,3), facecolor='#0f172a')
+        ax.set_facecolor('#0f172a')
+        # Simular pocillos
+        for i in range(3):
+            for j in range(2):
+                rect = patches.Rectangle((0.1+j*0.35, 0.1+i*0.35), 0.3, 0.3,
+                                         linewidth=1, edgecolor='#4ade80', facecolor='none')
+                ax.add_patch(rect)
+                ax.text(0.25+j*0.35, 0.25+i*0.35, f"T{i*2+j}", color='white', ha='center', va='center', fontsize=8)
+        ax.set_xlim(0,1); ax.set_ylim(0,1)
+        ax.axis('off')
+        buf = BytesIO()
+        plt.savefig(buf, format='png', facecolor='#0f172a', bbox_inches='tight', dpi=120)
+        buf.seek(0)
+        st.image(buf, caption="Ejemplo de ROIs rectangulares", use_container_width=True)
+        plt.close()
+    with col2:
+        # Curva de calibración de ejemplo
+        x = np.linspace(0,1,6)
+        y = 0.5*x + 0.02 + np.random.normal(0,0.02,6)
+        cal = fit_line(x, y)
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(x=x, y=y, mode='markers', name='Datos'))
+        fig2.add_trace(go.Scatter(x=x, y=cal['m']*x+cal['b'], mode='lines', name='Ajuste'))
+        fig2.update_layout(template='plotly_dark', paper_bgcolor='#0B1120', plot_bgcolor='#0B1120',
+                           margin=dict(l=40,r=20,t=40,b=40), height=280,
+                           title="Curva de calibración de ejemplo",
+                           xaxis_title="Concentración", yaxis_title="Absorbancia")
+        st.plotly_chart(fig2, use_container_width=True)
+
     footer()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1568,13 +1738,13 @@ elif pagina=="Biblioteca de Metodos":
 
 elif pagina=="Normativa":
     st.markdown("<h1>Normativa y fuentes de referencia</h1>",unsafe_allow_html=True)
-    slbl("Limites permisibles de referencia")
-    wbox("Verificar siempre en la version oficial vigente del DOF (dof.gob.mx). Valores informativos.")
-    norm_rows=[{"Analito":a,"Norma":n,"Limite (mg/L)":l} for a,ns in NORMATIVE_LIMITS.items() for n,l in ns.items()]
+    slbl("Límites permisibles de referencia")
+    wbox("Verificar siempre en la versión oficial vigente del DOF (dof.gob.mx). Valores informativos.")
+    norm_rows=[{"Analito":a,"Norma":n,"Límite (mg/L)":l} for a,ns in NORMATIVE_LIMITS.items() for n,l in ns.items()]
     st.dataframe(pd.DataFrame(norm_rows),use_container_width=True,hide_index=True)
     st.divider()
     slbl("Referencias")
-    refs=[("NOM-127-SSA1-2021","Agua potable. Limites permisibles. DOF 2021.","https://www.dof.gob.mx"),
+    refs=[("NOM-127-SSA1-2021","Agua potable. Límites permisibles. DOF 2021.","https://www.dof.gob.mx"),
           ("NOM-001-SEMARNAT-2021","Descargas aguas residuales. DOF 2021.","https://www.dof.gob.mx"),
           ("IARC Monographs Vol. 49","Chromium, Nickel and Welding. [Cr(VI) Grupo 1].","https://monographs.iarc.who.int"),
           ("Miller & Miller (2010)","Statistics and Chemometrics for Analytical Chemistry. Pearson.",""),
@@ -1584,13 +1754,13 @@ elif pagina=="Normativa":
         if u: st.markdown(f"- **{r}**: {t} — [Ver]({u})")
         else: st.markdown(f"- **{r}**: {t}")
     st.divider()
-    slbl("Editar limites normativos (sesion actual)")
-    ibox("Cambios solo para esta sesion. Para permanentes editar NORMATIVE_LIMITS en el codigo fuente.")
+    slbl("Editar límites normativos (sesión actual)")
+    ibox("Cambios solo para esta sesión. Para permanentes editar NORMATIVE_LIMITS en el código fuente.")
     ed_rows=[{"Analito":a,"Norma":n,"Limite_mg_L":l} for a,ns in NORMATIVE_LIMITS.items() for n,l in ns.items()]
-    ed_df=st.data_editor(pd.DataFrame(ed_rows),column_config={"Limite_mg_L":st.column_config.NumberColumn("Limite (mg/L)",min_value=0.0,step=0.001,format="%.4f")},num_rows="fixed",use_container_width=True,key="norm_ed")
+    ed_df=st.data_editor(pd.DataFrame(ed_rows),column_config={"Limite_mg_L":st.column_config.NumberColumn("Límite (mg/L)",min_value=0.0,step=0.001,format="%.4f")},num_rows="fixed",use_container_width=True,key="norm_ed")
     if st.button("Aplicar cambios"):
         NORMATIVE_LIMITS.clear()
         for _,row in ed_df.iterrows():
             NORMATIVE_LIMITS.setdefault(row["Analito"],{})[row["Norma"]]=row["Limite_mg_L"]
-        okbox("Limites actualizados para esta sesion.")
+        okbox("Límites actualizados para esta sesión.")
     footer()
