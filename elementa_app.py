@@ -1,5 +1,5 @@
 """
-Elementa — Sistema Analítico Colorimétrico Digital
+Elementa — Sistema analítico colorimétrico digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
 Software científico para colorimetría digital basada en imágenes RGB.
