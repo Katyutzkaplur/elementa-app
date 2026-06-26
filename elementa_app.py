@@ -79,12 +79,12 @@ NORMATIVE_LIMITS = {
 }
 
 STAT_EXPL = {
-    "R2":       "Coeficiente de determinación. R² ≥ 0.999 = linealidad excelente para cuantificación.",
-    "slope":    "Pendiente (m). Sensibilidad analítica. Negativa válida si el analito reduce la intensidad del canal.",
+    "R2":       "Coeficiente de determinación. R² ≥ 0.999 = linealidad excelente.",
+    "slope":    "Pendiente (m). Sensibilidad analítica.",
     "intercept": "Intercepto (b). Idealmente cercano al blanco de reactivos.",
-    "se":       "Error estándar de la pendiente. Incertidumbre en la sensibilidad.",
-    "LOD":      "Límite de detección (3.3·σ/|m|). Resultados < LOD se reportan como no detectados.",
-    "LOQ":      "Límite de cuantificación (10·σ/|m|). Resultados entre LOD y LOQ son semicuantitativos.",
+    "se":       "Error estándar de la pendiente.",
+    "LOD":      "Límite de detección (3.3·σ/|m|).",
+    "LOQ":      "Límite de cuantificación (10·σ/|m|).",
     "CV":       "Coeficiente de Variación. CV < 5% excelente, 5-10% aceptable, >10% revisar técnica.",
 }
 
@@ -101,7 +101,7 @@ def interpret_slope(m):
         return ("Relación inversa: la señal disminuye con la concentración. "
                 "Esto puede ser normal según el canal y el método (ej. DPPH).", "#F59E0B")
 
-# ─── Biblioteca de Protocolos Analíticos ─────────────────────────────────────
+# ─── Biblioteca de Protocolos Analíticos (completa) ──────────────────────────
 PROTOCOL_LIBRARY = {
     "Metales pesados": {
         "Cr(VI) — Difenilcarbazida": dict(
@@ -283,7 +283,7 @@ h3{{font-size:.9rem;font-weight:600;color:{MUTED};text-transform:uppercase;lette
 </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FUNCIONES NUCLEARES DE IMAGEN (RGB ONLY)
+#  FUNCIONES NUCLEARES DE IMAGEN (COMPLETO: RGB + HSV + CIELAB)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def load_image(up):
@@ -298,76 +298,123 @@ def gen_rois_plate(x0,y0,w,h,dx,dy,rows=8,cols=12):
     return [{"x":int(x0+c*dx),"y":int(y0+r*dy),"w":int(w),"h":int(h),"label":f"{rl[r]}{c+1}"}
             for r in range(rows) for c in range(cols)]
 
-def roi_fp(rois):
-    return hashlib.md5("|".join(r["label"] for r in rois).encode()).hexdigest()[:12]
+def gen_rois_tubes(x0,y0,radius,h,ntubes,dx):
+    """
+    Genera tres ROIs circulares por tubo, equidistantes verticalmente.
+    """
+    rois = []
+    for i in range(ntubes):
+        x_center = x0 + i*dx
+        y_positions = [
+            y0 + int(h * 0.25),
+            y0 + int(h * 0.5),
+            y0 + int(h * 0.75)
+        ]
+        for j, yc in enumerate(y_positions):
+            label = f"Tubo{i+1}"
+            if j==0: suf = "_Sup"
+            elif j==1: suf = "_Med"
+            else: suf = "_Inf"
+            full_label = label + suf
+            rois.append({
+                "x": x_center - radius,
+                "y": yc - radius,
+                "w": 2*radius,
+                "h": 2*radius,
+                "label": full_label,
+                "cx": x_center,
+                "cy": yc,
+                "radius": radius,
+                "tube_id": i+1
+            })
+    return rois
 
-def extract_rgb_norm(img, rois, circular=False, diam_map=None):
-    """Extrae R, G, B y calcula R_norm, G_norm, B_norm."""
-    H, W = img.shape[:2]; rows = []
+def extract_extended_channels(img, rois, circular=True, diam_map=None):
+    """
+    Extrae canales RGB + HSV + LAB para cada ROI.
+    """
+    H, W = img.shape[:2]
+    rows = []
+    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV).astype(float)
+    img_lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB).astype(float)
+
     for roi in rois:
-        x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
-        if circular:
-            diam = (diam_map or {}).get(roi["label"], min(w, h))
-            r    = diam // 2
-            cx, cy = x + w//2, y + h//2
+        if circular and "cx" in roi and "cy" in roi and "radius" in roi:
+            cx, cy, r = roi["cx"], roi["cy"], roi["radius"]
             x1, y1 = max(0, cx-r), max(0, cy-r)
             x2, y2 = min(W, cx+r), min(H, cy+r)
             crop = img[y1:y2, x1:x2]
             if crop.size == 0:
-                rows.append({"ROI":roi["label"],"R":np.nan,"G":np.nan,"B":np.nan,
-                             "R_norm":np.nan,"G_norm":np.nan,"B_norm":np.nan}); continue
+                rows.append(empty_row(roi["label"])); continue
             Yg, Xg = np.ogrid[:crop.shape[0], :crop.shape[1]]
             mask = ((Yg-(cy-y1))**2 + (Xg-(cx-x1))**2) <= r**2
-            if mask.sum() == 0:
-                rows.append({"ROI":roi["label"],"R":np.nan,"G":np.nan,"B":np.nan,
-                             "R_norm":np.nan,"G_norm":np.nan,"B_norm":np.nan}); continue
-            rv = crop[:,:,0][mask]; gv = crop[:,:,1][mask]; bv = crop[:,:,2][mask]
+            sl = (slice(y1,y2), slice(x1,x2))
         else:
-            crop = img[max(0,y):min(H,y+h), max(0,x):min(W,x+w)]
-            if crop.size == 0:
-                rows.append({"ROI":roi["label"],"R":np.nan,"G":np.nan,"B":np.nan,
-                             "R_norm":np.nan,"G_norm":np.nan,"B_norm":np.nan}); continue
-            rv = crop[:,:,0].ravel(); gv = crop[:,:,1].ravel(); bv = crop[:,:,2].ravel()
-        r_mean = rv.mean(); g_mean = gv.mean(); b_mean = bv.mean()
-        eps=1e-9; tot = r_mean+g_mean+b_mean+eps
+            x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
+            sl = (slice(max(0,y), min(H,y+h)), slice(max(0,x), min(W,x+w)))
+            mask = np.ones((sl[0].stop-sl[0].start, sl[1].stop-sl[1].start), bool)
+
+        def ch_stats(arr2d):
+            v = arr2d[sl][mask].ravel() if arr2d[sl].shape[:2] == mask.shape else arr2d[sl].ravel()
+            return (float(v.mean()), float(v.std())) if v.size else (np.nan, np.nan)
+
+        rm,rs = ch_stats(img[:,:,0]); gm,gs = ch_stats(img[:,:,1]); bm,bs = ch_stats(img[:,:,2])
+        hm,hs = ch_stats(img_hsv[:,:,0]); sm,ss = ch_stats(img_hsv[:,:,1]); vm,vs = ch_stats(img_hsv[:,:,2])
+        lm,ls2= ch_stats(img_lab[:,:,0]); am,as2 = ch_stats(img_lab[:,:,1]); blm,bls = ch_stats(img_lab[:,:,2])
+
+        eps=1e-9; tot=rm+gm+bm+eps
         rows.append({"ROI":roi["label"],
-                     "R":round(r_mean,2),"G":round(g_mean,2),"B":round(b_mean,2),
-                     "R_norm":round(r_mean/tot*100,3),
-                     "G_norm":round(g_mean/tot*100,3),
-                     "B_norm":round(b_mean/tot*100,3)})
+            "R":round(rm,2),"G":round(gm,2),"B":round(bm,2),
+            "R_sd":round(rs,2),"G_sd":round(gs,2),"B_sd":round(bs,2),
+            "R_norm":round(rm/tot*100,3),"G_norm":round(gm/tot*100,3),"B_norm":round(bm/tot*100,3),
+            "H":round(hm,2),"S":round(sm,2),"V":round(vm,2),
+            "L":round(lm,2),"a":round(am,2),"b_lab":round(blm,2),
+        })
     return pd.DataFrame(rows)
 
+def empty_row(label):
+    return {"ROI":label,"R":np.nan,"G":np.nan,"B":np.nan,"R_sd":np.nan,"G_sd":np.nan,"B_sd":np.nan,
+            "R_norm":np.nan,"G_norm":np.nan,"B_norm":np.nan,
+            "H":np.nan,"S":np.nan,"V":np.nan,"L":np.nan,"a":np.nan,"b_lab":np.nan}
+
 def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
-    """
-    Dibuja ROIs sobre la imagen.
-    circular=True → contorno circular con máscara interna semitransparente.
-    """
     out = img.copy()
     for roi in rois:
         tipo = (type_map or {}).get(roi["label"], "Sin asignar")
         rgb  = TIPO_BGR.get(tipo, (30, 41, 59))
         bgr  = (rgb[2], rgb[1], rgb[0])
-        x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
-        if circular:
-            diam = (diam_map or {}).get(roi["label"], min(w, h))
-            cx, cy, r = x + w//2, y + h//2, diam//2
+        if "cx" in roi and "cy" in roi and "radius" in roi:
+            cx, cy, r = roi["cx"], roi["cy"], roi["radius"]
             cv2.circle(out, (cx, cy), r, bgr, 2)
             cv2.circle(out, (cx, cy), 2, bgr, -1)
+            x_text = cx - 10
+            y_text = cy - r - 5
         else:
-            cv2.rectangle(out, (x, y), (x+w, y+h), bgr, 2)
+            x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
+            if circular:
+                diam = (diam_map or {}).get(roi["label"], min(w, h))
+                cx, cy, r = x + w//2, y + h//2, diam//2
+                cv2.circle(out, (cx, cy), r, bgr, 2)
+                cv2.circle(out, (cx, cy), 2, bgr, -1)
+            else:
+                cv2.rectangle(out, (x, y), (x+w, y+h), bgr, 2)
+            x_text, y_text = x, max(y-3, 10)
         short = TIPO_SHORT.get(tipo, "")
-        cv2.putText(out, roi["label"], (x, max(y-3, 10)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, bgr, 1, cv2.LINE_AA)
-        if short and short != "--" and w >= 25 and h >= 16:
-            cx2, cy2 = x + w//2, y + h//2
-            cv2.putText(out, short, (cx2-12, cy2+4),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.32, bgr, 1, cv2.LINE_AA)
+        cv2.putText(out, roi["label"], (x_text, y_text),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, bgr, 1, cv2.LINE_AA)
+        if short and short != "--":
+            if "cx" in roi:
+                cx2, cy2 = roi["cx"], roi["cy"]
+            else:
+                cx2, cy2 = x + w//2, y + h//2
+            cv2.putText(out, short, (cx2-10, cy2+4),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, bgr, 1, cv2.LINE_AA)
     return out
 
 def calc_absorbance(df, blank_roi, channels=None):
-    """Calcula absorbancia digital A = log10(I_blanco / I_muestra) para canales RGB."""
     if channels is None:
-        channels = ["R_norm","G_norm","B_norm"]
+        channels = ["R_norm","G_norm","B_norm","H","S","V","L","a","b_lab"]
     df=df.copy()
     for ch in channels:
         col=f"A_{ch}"
@@ -379,8 +426,53 @@ def calc_absorbance(df, blank_roi, channels=None):
         df[col]=df[ch].apply(lambda v: math.log10((bv+eps)/(v+eps)) if pd.notna(v) else np.nan)
     return df
 
+def average_tube_rois(df_ext, group_col="tube_id"):
+    if group_col not in df_ext.columns:
+        return df_ext, None
+    num_cols = [c for c in df_ext.columns if c not in ["ROI","tube_id"] and df_ext[c].dtype in [float,int]]
+    grouped = df_ext.groupby(group_col)[num_cols].mean().reset_index()
+    grouped["ROI"] = grouped[group_col].apply(lambda x: f"Tubo{x}")
+    homogeneity_df = compute_homogeneity(df_ext, ["R_norm","G_norm","B_norm","H","S","V","L","a","b_lab"])
+    return grouped, homogeneity_df
+
+def compute_homogeneity(df_ext, channels):
+    if "tube_id" not in df_ext.columns:
+        return pd.DataFrame()
+    stats = []
+    for tube, grp in df_ext.groupby("tube_id"):
+        tube_name = f"Tubo{tube}"
+        for ch in channels:
+            vals = grp[ch].dropna().values
+            if len(vals)<2: continue
+            mean_val = np.mean(vals)
+            std_val = np.std(vals, ddof=1)
+            cv_val = (std_val/mean_val)*100 if mean_val!=0 else np.nan
+            min_val = np.min(vals)
+            max_val = np.max(vals)
+            interp = "Excelente" if cv_val<5 else ("Aceptable" if cv_val<=10 else "Revisar")
+            stats.append({
+                "Tubo": tube_name,
+                "ROI_sup": f"{tube_name}_Sup",
+                "ROI_med": f"{tube_name}_Med",
+                "ROI_inf": f"{tube_name}_Inf",
+                "Canal": ch,
+                "Media": round(mean_val,4),
+                "SD": round(std_val,4),
+                "CV%": round(cv_val,2),
+                "Mín": round(min_val,4),
+                "Máx": round(max_val,4),
+                "Interpretación": interp
+            })
+    return pd.DataFrame(stats)
+
+ALL_CHANNELS = ["R_norm","G_norm","B_norm","H","S","V","L","a","b_lab"]
+CHANNEL_LABELS = {
+    "R_norm":"R normalizado","G_norm":"G normalizado","B_norm":"B normalizado",
+    "H":"Hue (HSV)","S":"Saturación (HSV)","V":"Valor (HSV)",
+    "L":"L* (CIELAB)","a":"a* (CIELAB)","b_lab":"b* (CIELAB)",
+}
+
 def select_channel_by_delta(df_merged, blank_label):
-    """Selecciona el canal RGB con mayor diferencia entre el blanco y el estándar más concentrado."""
     blank_row = df_merged[df_merged["ROI"]==blank_label]
     if blank_row.empty: return "G_norm",{}
     stds = df_merged[df_merged["Tipo"]=="Estándar"].copy()
@@ -388,7 +480,7 @@ def select_channel_by_delta(df_merged, blank_label):
     max_conc_idx = stds["Concentracion"].idxmax()
     smax_row = stds.loc[max_conc_idx]
     deltas = {}
-    for ch in ["R_norm","G_norm","B_norm"]:
+    for ch in ALL_CHANNELS:
         if ch in blank_row.columns and ch in smax_row.index:
             val_blank = float(blank_row[ch].values[0])
             val_smax  = float(smax_row[ch])
@@ -525,7 +617,7 @@ def plot_plate(asgn_df, tri_groups):
                       title=dict(text="Mapa de placa",font=dict(size=12)))
     return fig
 
-def plot_cal(concs,sigs,cal,ch,analyte,unit,lod,loq):
+def plot_cal(concs,sigs,cal,ch,analyte,unit,lod,loq,normalized=False):
     x0=max(0,float(concs.min())*0.85) if float(concs.min())>0 else 0.0
     x1=float(concs.max())*1.15; xl=np.linspace(x0,x1,300)
     fig=go.Figure()
@@ -539,6 +631,8 @@ def plot_cal(concs,sigs,cal,ch,analyte,unit,lod,loq):
         annotation_text=f"LOQ={loq:.3f}",annotation_font_color="#F59E0B",annotation_font_size=9)
     m,b,r2=cal["m"],cal["b"],cal["r2"]; sgn="+" if b>=0 else "-"
     eq=f"A = {m:.4f}·C {sgn} {abs(b):.4f}   |   R² = {r2:.5f}"
+    if normalized:
+        eq += "  (señal normalizada)"
     fig.add_annotation(x=0.03,y=0.97,xref="paper",yref="paper",text=eq,showarrow=False,
         font=dict(color="#4ADE80",size=10,family="JetBrains Mono"),
         bgcolor="rgba(11,17,32,.85)",bordercolor=SUCCESS,borderwidth=1,borderpad=5)
@@ -557,23 +651,22 @@ def plot_residuals(concs,cal,ch):
     return fig
 
 def plot_channels(ch_res):
-    """Panel de barrido de canales (solo RGB)."""
     if not ch_res: return go.Figure()
-    chs = [c for c in ["R_norm","G_norm","B_norm"] if c in ch_res]
+    chs = [c for c in ALL_CHANNELS if c in ch_res]
     if not chs: chs = list(ch_res.keys())
     r2s = [ch_res[c]["r2"] for c in chs]
     mx = max(r2s)
     clrs = [SUCCESS if v==mx else CARD2 for v in r2s]
-    labels = [c.replace("_norm","") for c in chs]  # R, G, B
+    labels = [CHANNEL_LABELS.get(c,c) for c in chs]
     fig = go.Figure()
     fig.add_trace(go.Bar(x=labels,y=r2s,marker_color=clrs,
         text=[f"{v:.5f}" for v in r2s],textposition="outside",
         textfont=dict(color=TEXT,size=9,family="JetBrains Mono"),
         name="R²",hovertemplate="<b>%{x}</b><br>R²=%{y:.5f}<extra></extra>"))
     fig.update_layout(**_PLT,height=300,
-        title="Panel de barrido RGB — R² (mayor = mejor canal)",
+        title="Panel de barrido multicanal — R²",
         yaxis=dict(range=[max(0,min(r2s)-.05),1.02],title="R²"),
-        xaxis_title="Canal",xaxis_tickangle=0)
+        xaxis_title="Canal",xaxis_tickangle=-30)
     return fig
 
 def plot_sa(added,sigs,sa,analyte,unit):
@@ -595,10 +688,10 @@ def plot_sa(added,sigs,sa,analyte,unit):
     return fig
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  GRÁFICA MATPLOTLIB PARA PDF (sin kaleido)
+#  GRÁFICA MATPLOTLIB PARA PDF
 # ══════════════════════════════════════════════════════════════════════════════
 
-def cal_to_png(cal,concs,sigs,ch,analyte,unit,lod,loq):
+def cal_to_png(cal,concs,sigs,ch,analyte,unit,lod,loq,normalized=False):
     try:
         import matplotlib.pyplot as plt
         plt.switch_backend("agg")
@@ -622,7 +715,10 @@ def cal_to_png(cal,concs,sigs,ch,analyte,unit,lod,loq):
         if lod_ok: ax.axvline(lod,color=RED2,linestyle=":",linewidth=1.3); ax.text(lod,yb+yp,f"  LOD={lod:.3f}",color=RED2,fontsize=7,va="bottom")
         if loq_ok: ax.axvline(loq,color=ORG,linestyle=":",linewidth=1.3); ax.text(loq,yb+yp,f"  LOQ={loq:.3f}",color=ORG,fontsize=7,va="bottom")
         m,b,r2=cal["m"],cal["b"],cal["r2"]; sgn="+" if b>=0 else "-"
-        ax.text(0.03,0.97,f"y={m:.4f}x {sgn} {abs(b):.4f}  |  R²={r2:.5f}",
+        title_txt = f"y={m:.4f}x {sgn} {abs(b):.4f}  |  R²={r2:.5f}"
+        if normalized:
+            title_txt += " (señal normalizada)"
+        ax.text(0.03,0.97,title_txt,
                 transform=ax.transAxes,fontsize=8.5,color=GRN,va="top",ha="left",
                 bbox=dict(facecolor=CARD2C,edgecolor="#166534",boxstyle="round,pad=0.35"))
         ax.set_xlabel(f"Concentración ({unit})",color=SUB,fontsize=9)
@@ -642,7 +738,6 @@ def cal_to_png(cal,concs,sigs,ch,analyte,unit,lod,loq):
         return None
 
 def channel_sweep_to_png(channel, cal, concs, sigs, unit):
-    """Genera una gráfica de barrido individual para un canal RGB (matplotlib)."""
     try:
         import matplotlib.pyplot as plt
         plt.switch_backend("agg")
@@ -657,7 +752,7 @@ def channel_sweep_to_png(channel, cal, concs, sigs, unit):
         ax.plot(xl,cal["m"]*xl+cal["b"],color=BLU,linewidth=1.5)
         ax.text(0.05,0.95,f"R²={cal['r2']:.4f}  m={cal['m']:.3f}",transform=ax.transAxes,
                 fontsize=7,color=TXT2,va="top",bbox=dict(facecolor="#1e293b",edgecolor="#334155",boxstyle="round"))
-        ax.set_title(f"{channel}",color=TXT2,fontsize=8)
+        ax.set_title(f"{CHANNEL_LABELS.get(channel,channel)}",color=TXT2,fontsize=8)
         ax.set_xlabel(f"Concentración ({unit})",color=SUB,fontsize=7)
         ax.set_ylabel("Abs. digital",color=SUB,fontsize=7)
         ax.tick_params(colors=SUB,labelsize=6)
@@ -672,11 +767,12 @@ def channel_sweep_to_png(channel, cal, concs, sigs, unit):
         return None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  REPORTE PDF (mejorado, solo RGB)
+#  REPORTE PDF
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
-            cal_png_bytes,channel_sweep_pngs,selected_channel,unit="mg/L"):
+            cal_png_bytes,channel_sweep_pngs,selected_channel,unit="mg/L",
+            homogeneity_df=None, normalized=False):
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.colors import HexColor, white
@@ -751,19 +847,26 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
         pil=Image.fromarray(annotated_img); ib=BytesIO(); pil.save(ib,"PNG"); ib.seek(0)
         story.append(RLImage(ib,width=4.8*inch,height=3.0*inch,kind="proportional"))
         story.append(Spacer(1,8))
-    # B) Barrido de canales RGB
+    # B) Barrido de canales
     if channel_sweep_pngs and len(channel_sweep_pngs)>0:
-        story.append(Paragraph("B) Barrido de canales RGB — selección de longitud de onda digital", h2s))
-        for ch_png in channel_sweep_pngs[:3]:
+        story.append(Paragraph("B) Barrido multicanal", h2s))
+        for ch_png in channel_sweep_pngs[:4]:
             story.append(RLImage(BytesIO(ch_png),width=5.5*inch,height=3.0*inch))
             story.append(Spacer(1,4))
-        story.append(note("Gráficas de absorbancia digital vs concentración para R, G, B. "
-                          "El canal con mayor Δ y R² es el recomendado."))
+        story.append(note("Gráficas de absorbancia digital para los canales evaluados."))
+        story.append(Spacer(1,10))
+    # Homogeneidad interna
+    if homogeneity_df is not None and not homogeneity_df.empty:
+        story.append(Paragraph("Control de homogeneidad interna en tubos", h2s))
+        story.append(note("CV% < 5% excelente, 5-10% aceptable, >10% revisar."))
+        story.append(Spacer(1,4))
+        cols=list(homogeneity_df.columns)
+        hdata=[cols]+[[str(v) for v in row] for _,row in homogeneity_df.iterrows()]
+        story.append(dtbl(hdata,[1.0*inch]*len(cols),C["grn"]))
         story.append(Spacer(1,10))
     # Tabla RGB
     if df_rgb is not None and not df_rgb.empty:
-        story.append(Paragraph("Datos colorimétricos RGB por región de interés", h2s))
-        story.append(note("R, G, B: intensidad media (0–255). R_norm, G_norm, B_norm: % del total RGB."))
+        story.append(Paragraph("Datos colorimétricos", h2s))
         story.append(Spacer(1,4))
         cols=[c for c in ["ROI","R","G","B","R_norm","G_norm","B_norm"] if c in df_rgb.columns]
         td=[cols]+[[f"{v:.2f}" if isinstance(v,float) else str(v) for v in row]
@@ -774,8 +877,10 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
     if cal and cal_png_bytes:
         story.append(Paragraph("C) Curva de calibración final optimizada", h2s))
         story.append(RLImage(BytesIO(cal_png_bytes),width=5.8*inch,height=3.2*inch))
-        story.append(note(f"Canal seleccionado: {selected_channel}. "
-                          "Puntos: estándares. Línea: regresión. Líneas punteadas: LOD/LOQ."))
+        txt = f"Canal seleccionado: {selected_channel}."
+        if normalized:
+            txt += " Se aplicó normalización automática de la dirección de la señal."
+        story.append(note(txt))
         story.append(Spacer(1,8))
     # D) Resumen analítico
     if cal:
@@ -828,7 +933,6 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
     return buf.read()
 
 def sanitize_filename(name):
-    """Convierte nombre de analito a formato seguro para archivo."""
     name = name.replace("(", "").replace(")", "").replace(" ", "_")
     name = re.sub(r'[^\w\-_\.]', '', name)
     return name
@@ -840,21 +944,48 @@ def sanitize_filename(name):
 def init():
     defs=dict(image=None,rois=[],freeze_rois=False,device_type="Viales lineales",
               use_circular=False,global_diam=18,
-              assignment_df=None,_asgn_fp="",blank_label=None,
+              assignment_df=None, blank_label=None,
               df_rgb=None,df_abs=None,df_merged=None,
               cal_result=None,best_ch="G_norm",all_ch={},tri_groups={},tri_df=None,
               df_results=None,annotated_img=None,
               cal_fig=None,res_fig=None,sa_fig=None,sa_result=None,
               cal_concs=None,cal_sigs=None,cal_unit="mg/L",cal_analyte="",cal_ch="",
               cal_png=None,selected_channel="G_norm",
-              assignment_df_backup=None,roi_config_backup=None)
+              assignment_df_backup=None,rois_backup=None,
+              normalized_signal=False,
+              homogeneity_df=None,
+              original_image=None)
     for k,v in defs.items():
         if k not in st.session_state: st.session_state[k]=v
 
 init()
 
-# ── Helpers UI ─────────────────────────────────────────────────────────────────
+def ensure_assignment_df(rois):
+    current_labels = [r["label"] for r in rois]
+    if "assignment_df" not in st.session_state or st.session_state["assignment_df"] is None:
+        df = pd.DataFrame([{"ROI":label,"Tipo":"Sin asignar","Nombre":"",
+                            "Concentracion":0.0,"Unidad":"mg/L",
+                            "Factor_dil":1.0,"Analito":"Cr(VI)","Observaciones":""}
+                           for label in current_labels])
+        st.session_state["assignment_df"] = df
+        st.session_state["assignment_df_backup"] = df.copy()
+        return df
 
+    df = st.session_state["assignment_df"]
+    st.session_state["assignment_df_backup"] = df.copy()
+
+    for label in current_labels:
+        if label not in df["ROI"].values:
+            new_row = pd.DataFrame([{"ROI":label,"Tipo":"Sin asignar","Nombre":"",
+                                     "Concentracion":0.0,"Unidad":"mg/L",
+                                     "Factor_dil":1.0,"Analito":"Cr(VI)","Observaciones":""}])
+            df = pd.concat([df, new_row], ignore_index=True)
+    df = df[df["ROI"].isin(current_labels)]
+    df = df.set_index("ROI").reindex(current_labels).reset_index()
+    st.session_state["assignment_df"] = df
+    return df
+
+# ── Helpers UI ─────────────────────────────────────────────────────────────────
 def mc(label,value,interpret=None,explain=None,col=None):
     itp=""
     if interpret: itp=f'<p class="itp" style="color:{interpret[1]}">{interpret[0]}</p>'
@@ -905,16 +1036,18 @@ if pagina=="Análisis":
             if uf:
                 loaded=load_image(uf)
                 if loaded is not None:
-                    st.session_state["image"]=loaded; st.session_state["rois"]=[]
-                    st.session_state["_asgn_fp"]=""
+                    st.session_state["image"]=loaded
+                    st.session_state["original_image"]=loaded.copy()
+                    st.session_state["rois"]=[]
                     st.session_state["selected_channel"]="G_norm"
         with c2:
             cam=st.camera_input("Capturar con cámara",label_visibility="collapsed")
             if cam:
                 loaded=load_image(cam)
                 if loaded is not None:
-                    st.session_state["image"]=loaded; st.session_state["rois"]=[]
-                    st.session_state["_asgn_fp"]=""
+                    st.session_state["image"]=loaded
+                    st.session_state["original_image"]=loaded.copy()
+                    st.session_state["rois"]=[]
                     st.session_state["selected_channel"]="G_norm"
 
         if st.session_state["image"] is None:
@@ -923,120 +1056,132 @@ if pagina=="Análisis":
 
         img=st.session_state["image"]; H,W=img.shape[:2]
 
-        # ── Control de calidad de imagen ────────────────────────
+        # ─── NUEVA SECCIÓN: Ajuste de imagen ────────────────────────────────
+        st.markdown("---")
+        slbl("Ajuste de imagen (rotar / voltear)")
+        with st.expander("Rotar y alinear la imagen antes de definir ROIs", expanded=False):
+            col_adj1, col_adj2 = st.columns(2)
+            with col_adj1:
+                angle = st.slider("Ángulo de rotación", -45.0, 45.0, 0.0, 0.5, key="rot_angle")
+            with col_adj2:
+                flip_h = st.checkbox("Voltear horizontalmente", key="flip_h")
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("Aplicar ajustes"):
+                    img_work = st.session_state["image"]
+                    if flip_h:
+                        img_work = cv2.flip(img_work, 1)
+                    if angle != 0:
+                        h, w = img_work.shape[:2]
+                        center = (w//2, h//2)
+                        M = cv2.getRotationMatrix2D(center, angle, 1.0)
+                        cos = abs(M[0,0])
+                        sin = abs(M[0,1])
+                        new_w = int((h * sin) + (w * cos))
+                        new_h = int((h * cos) + (w * sin))
+                        M[0,2] += (new_w/2) - center[0]
+                        M[1,2] += (new_h/2) - center[1]
+                        img_work = cv2.warpAffine(img_work, M, (new_w, new_h), flags=cv2.INTER_LINEAR)
+                    st.session_state["image"] = img_work
+                    st.session_state["rois"] = []   # las coordenadas ya no sirven
+                    st.rerun()
+            with col_btn2:
+                if st.button("Restaurar imagen original"):
+                    if st.session_state.get("original_image") is not None:
+                        st.session_state["image"] = st.session_state["original_image"].copy()
+                        st.session_state["rois"] = []
+                        st.rerun()
+
+        # Control de calidad
         qc = check_image_quality(img)
         icons = {"ok":"✓","warn":"⚠","fail":"✗"}
         colors_qc = {"ok":SUCCESS,"warn":"#F59E0B","fail":DANGER}
         qc_parts = []
         for v in qc.values():
-            gr    = v["grade"]
-            icon  = icons[gr]
-            col_c = colors_qc[gr]
-            lbl   = v["label"]
+            gr=v["grade"]; icon=icons[gr]; col_c=colors_qc[gr]; lbl=v["label"]
             qc_parts.append(f'<span style="color:{col_c};font-size:.78rem;">{icon} {lbl}</span>')
-        qc_html = " &nbsp; ".join(qc_parts)
         with st.expander("Control de calidad de imagen", expanded=any(v["grade"]!="ok" for v in qc.values())):
-            st.markdown(qc_html, unsafe_allow_html=True)
-            if any(v["grade"]=="fail" for v in qc.values()):
-                wbox("Una o más métricas de calidad están fuera del rango recomendado. Se recomienda repetir la captura.")
-            elif any(v["grade"]=="warn" for v in qc.values()):
-                st.markdown(f'<div class="info-box">Algunas métricas requieren revisión. Los resultados pueden ser válidos pero verificar condiciones de captura.</div>',unsafe_allow_html=True)
+            st.markdown(" &nbsp; ".join(qc_parts), unsafe_allow_html=True)
 
         st.markdown(f"<hr style='border-color:{BORDER};margin:16px 0;'>",unsafe_allow_html=True)
         slbl("Paso 2 — Definir regiones de interés (ROIs)")
-
         ctrl_col,img_col=st.columns([1,1],gap="large")
 
         with ctrl_col:
             dev=st.selectbox("Tipo de dispositivo",
-                             ["Viales lineales","Microplaca de 96 pocillos","Personalizado"],
+                             ["Viales lineales","Microplaca de 96 pocillos","Tubos de ensayo (3 ROIs circulares)","Personalizado"],
                              key="dev_sel")
             st.session_state["device_type"]=dev
 
             is_plate = (dev == "Microplaca de 96 pocillos")
-            use_circular = is_plate
-            if not is_plate:
-                use_circular = st.toggle("Usar ROIs circulares (reducen ruido de fondo)",
-                                         value=st.session_state.get("use_circular",False), key="circ_tog")
+            is_tubes = (dev == "Tubos de ensayo (3 ROIs circulares)")
+            use_circular = is_plate or is_tubes
+            if not is_plate and not is_tubes:
+                use_circular = st.toggle("Usar ROIs circulares", value=st.session_state.get("use_circular",False), key="circ_tog")
             st.session_state["use_circular"] = use_circular
 
             if use_circular:
-                global_diam = st.slider("Diámetro global de pocillo (px)", 6, 80,
-                                        st.session_state.get("global_diam",18), key="g_diam")
+                global_diam = st.slider("Diámetro global (px)", 6, 80, st.session_state.get("global_diam",18), key="g_diam")
                 st.session_state["global_diam"] = global_diam
-                if is_plate:
-                    st.markdown('<div class="info-box">En microplaca los ROIs son circulares por defecto.</div>',
-                                unsafe_allow_html=True)
             else:
                 global_diam = None
 
-            if is_plate:
-                st.markdown(
-                    '<div class="info-box">'
-                    '<b>Coordenadas recomendadas para microplaca:</b><br>'
-                    'X inicial: <b>318 px</b> &nbsp;|&nbsp; '
-                    'Y inicial: <b>228 px</b> &nbsp;|&nbsp; '
-                    'Diámetro pocillo: <b>60 px</b> &nbsp;|&nbsp; '
-                    'Espaciado X: <b>170 px</b> &nbsp;|&nbsp; '
-                    'Espaciado Y: <b>170 px</b>'
-                    '</div>',
-                    unsafe_allow_html=True)
-            elif dev == "Viales lineales":
-                st.markdown(
-                    '<div class="info-box">'
-                    '<b>Coordenadas recomendadas para viales:</b><br>'
-                    'X inicial: <b>394 px</b> &nbsp;|&nbsp; '
-                    'Y inicial: <b>497 px</b> &nbsp;|&nbsp; '
-                    'Ancho ROI: <b>33 px</b> &nbsp;|&nbsp; '
-                    'Alto ROI: <b>49 px</b> &nbsp;|&nbsp; '
-                    'Espaciado Y: <b>108 px</b>'
-                    '</div>',
-                    unsafe_allow_html=True)
-
-            freeze=st.toggle("Bloquear ROIs",value=st.session_state["freeze_rois"],key="frz")
+            freeze=st.toggle("Bloquear ROIs", value=st.session_state["freeze_rois"], key="frz")
             st.session_state["freeze_rois"]=freeze
 
             if not freeze:
                 if dev=="Viales lineales":
-                    n  = st.number_input("N de viales",2,24,6,1,key="vn")
-                    x0 = st.slider("X inicial (px)",0,W-1,int(W*.05),key="vx0")
-                    y0 = st.slider("Y inicial (px)",0,H-1,int(H*.25),key="vy0")
-                    rw = st.slider("Ancho ROI (px)",5,200,40,key="vrw")
-                    rh = st.slider("Alto ROI (px)", 5,300,60,key="vrh")
-                    dx = st.slider("Espaciado X (px)",0,300,int(W*.08),key="vdx")
-                    dy = st.slider("Espaciado Y (px)",0,300,0,key="vdy")
+                    n=st.number_input("N de viales",2,24,6,1,key="vn")
+                    x0=st.slider("X inicial",0,W-1,int(W*.05),key="vx0")
+                    y0=st.slider("Y inicial",0,H-1,int(H*.25),key="vy0")
+                    rw=st.slider("Ancho ROI",5,200,40,key="vrw")
+                    rh=st.slider("Alto ROI",5,300,60,key="vrh")
+                    dx=st.slider("Espaciado X",0,300,int(W*.08),key="vdx")
+                    dy=st.slider("Espaciado Y",0,300,0,key="vdy")
                     rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
-
                 elif is_plate:
                     diam = st.session_state.get("global_diam", 60)
-                    n_rows = st.number_input("Filas", 1,8, 8,1,key="prows")
-                    n_cols = st.number_input("Columnas",1,12,12,1,key="pcols")
-                    x0 = st.slider("X inicial (px)",0,W-1,318,key="px0")
-                    y0 = st.slider("Y inicial (px)",0,H-1,228,key="py0")
-                    dx = st.slider("Espaciado X (px)",10,300,170,key="pdx")
-                    dy = st.slider("Espaciado Y (px)",10,300,170,key="pdy")
+                    n_rows=st.number_input("Filas",1,8,8,1,key="prows")
+                    n_cols=st.number_input("Columnas",1,12,12,1,key="pcols")
+                    x0=st.slider("X inicial",0,W-1,318,key="px0")
+                    y0=st.slider("Y inicial",0,H-1,228,key="py0")
+                    dx=st.slider("Espaciado X",10,300,170,key="pdx")
+                    dy=st.slider("Espaciado Y",10,300,170,key="pdy")
                     rois=gen_rois_plate(x0,y0,diam,diam,dx,dy,int(n_rows),int(n_cols))
-
+                elif is_tubes:
+                    radius = st.slider("Radio del círculo (px)", 5, 50, 15, key="t_radius")
+                    h = st.slider("Altura del tubo (px)", 50, 500, 200, key="t_h")
+                    ntubes = st.number_input("Número de tubos", 1, 12, 6, 1, key="t_ntubes")
+                    x0 = st.slider("X inicial (centro primer tubo)", 0, W-1, 100, key="t_x0")
+                    y0 = st.slider("Y inicial (borde superior)", 0, H-1, 100, key="t_y0")
+                    dx = st.slider("Espaciado X entre tubos", 20, 300, 120, key="t_dx")
+                    rois=gen_rois_tubes(x0,y0,radius,h,int(ntubes),dx)
                 else:
-                    n  = st.number_input("N de ROIs",2,50,6,1,key="cn")
-                    x0 = st.slider("X inicial (px)",0,W-1,int(W*.05),key="cx0")
-                    y0 = st.slider("Y inicial (px)",0,H-1,int(H*.1), key="cy0")
-                    rw = st.slider("Ancho ROI (px)",5,200,30,key="crw")
-                    rh = st.slider("Alto ROI (px)", 5,200,30,key="crh")
-                    dx = st.slider("Espaciado X (px)",0,300,int(W*.08),key="cdx")
-                    dy = st.slider("Espaciado Y (px)",0,300,int(H*.08),key="cdy")
+                    n=st.number_input("N de ROIs",2,50,6,1,key="cn")
+                    x0=st.slider("X inicial",0,W-1,int(W*.05),key="cx0")
+                    y0=st.slider("Y inicial",0,H-1,int(H*.1), key="cy0")
+                    rw=st.slider("Ancho ROI",5,200,30,key="crw")
+                    rh=st.slider("Alto ROI",5,200,30,key="crh")
+                    dx=st.slider("Espaciado X",0,300,int(W*.08),key="cdx")
+                    dy=st.slider("Espaciado Y",0,300,int(H*.08),key="cdy")
                     rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
-
                 st.session_state["rois"]=rois
+                st.session_state["rois_backup"]=[r.copy() for r in rois]
             else:
-                rois=st.session_state.get("rois",[])
-                if rois: okbox(f"ROIs bloqueadas — {len(rois)} regiones. Desactive para reajustar.")
-                else:    wbox("No hay ROIs definidas. Desactive el bloqueo para configurar.")
+                rois = st.session_state.get("rois", [])
+                if not rois and st.session_state.get("rois_backup"):
+                    rois = st.session_state["rois_backup"]
+                    st.session_state["rois"] = rois
+                    wbox("ROIs recuperadas del respaldo.")
+                if rois:
+                    okbox(f"ROIs bloqueadas — {len(rois)} regiones.")
+                else:
+                    wbox("No hay ROIs definidas. Desactive el bloqueo para configurar.")
 
         with img_col:
-            rois=st.session_state.get("rois",[])
-            use_circ = st.session_state.get("use_circular",False)
-            diam_map = {r["label"]: st.session_state.get("global_diam",18) for r in rois} if use_circ else None
+            rois = st.session_state.get("rois", [])
+            use_circ = st.session_state.get("use_circular", False)
+            diam_map = {r["label"]: st.session_state.get("global_diam", 18) for r in rois} if not is_tubes and use_circ else None
             if rois:
                 try:
                     tm = {}
@@ -1045,18 +1190,12 @@ if pagina=="Análisis":
                                       st.session_state["assignment_df"]["Tipo"]))
                     ann = draw_rois(img, rois, tm, circular=use_circ, diam_map=diam_map)
                     st.session_state["annotated_img"] = ann
-                    leg = " ".join(
-                        f'<span style="background:{c};color:{TEXT};padding:1px 7px;'
-                        f'border-radius:3px;font-size:.68rem;font-weight:700;margin-right:2px;">'
-                        f'{TIPO_SHORT[t]}</span>'
-                        for t,c in TIPO_COLORS.items() if t!="Sin asignar")
-                    st.markdown(leg, unsafe_allow_html=True)
-                    st.image(ann, caption=f"Overlay en tiempo real — {'ROIs circulares' if use_circ else 'ROIs rectangulares'}", use_container_width=True)
+                    st.image(ann, caption=f"Overlay {'circular' if use_circ else 'rectangular'}", use_container_width=True)
                 except Exception as e:
-                    st.error(f"Error al dibujar ROIs: {str(e)}")
-                    st.image(img, caption="Imagen sin overlay (error al dibujar)", use_container_width=True)
+                    st.error(f"Error dibujando ROIs: {e}")
+                    st.image(img, use_container_width=True)
             else:
-                st.image(img, caption="Imagen original — defina ROIs para ver el overlay", use_container_width=True)
+                st.image(img, caption="Imagen original", use_container_width=True)
 
         if not rois:
             ibox("Configure las ROIs para continuar.")
@@ -1065,28 +1204,21 @@ if pagina=="Análisis":
 
     # ── TAB 2: PROCESAMIENTO ────────────────────────────────────────────────
     with tab_proc:
-        rois=st.session_state.get("rois",[]); img=st.session_state.get("image")
+        rois = st.session_state.get("rois", [])
+        if not rois and st.session_state.get("rois_backup"):
+            rois = st.session_state["rois_backup"]
+            st.session_state["rois"] = rois
+            wbox("ROIs recuperadas del respaldo.")
+        img = st.session_state.get("image")
         if not rois or img is None:
-            wbox("Defina las ROIs en la pestaña Captura primero."); footer(); st.stop()
-        # Persistencia de la asignación
-        current_labels = [r["label"] for r in rois]
-        current_hash   = hashlib.md5("|".join(current_labels).encode()).hexdigest()
-        if "assignment_df" not in st.session_state or st.session_state.get("_labels_hash") != current_hash:
-            old_df = st.session_state.get("assignment_df")
-            new_rows = []
-            for label in current_labels:
-                if old_df is not None and label in old_df["ROI"].values:
-                    new_rows.append(old_df[old_df["ROI"]==label].iloc[0].to_dict())
-                else:
-                    new_rows.append({"ROI":label,"Tipo":"Sin asignar","Nombre":"",
-                                     "Concentracion":0.0,"Unidad":"mg/L",
-                                     "Factor_dil":1.0,"Analito":"Cr(VI)","Observaciones":""})
-            st.session_state["assignment_df"] = pd.DataFrame(new_rows)
-            st.session_state["_labels_hash"] = current_hash
+            wbox("Defina las ROIs en Captura primero.")
+            footer(); st.stop()
+
+        assignment_df = ensure_assignment_df(rois)
+
         slbl("Paso 3 — Asignar tipos y concentraciones")
-        ibox("Asigne BLANK=Blanco, STD=Estándar, SMP=Muestra. Pocillos de la misma columna forman triplicados.")
         edited = st.data_editor(
-            st.session_state["assignment_df"],
+            assignment_df,
             column_config={
                 "Tipo":    st.column_config.SelectboxColumn("Tipo",   options=TIPOS,   required=True),
                 "Unidad":  st.column_config.SelectboxColumn("Unidad", options=UNIDADES,required=True),
@@ -1099,41 +1231,31 @@ if pagina=="Análisis":
             key="asgn_editor"
         )
         st.session_state["assignment_df"] = edited
-        blank_r=edited[edited["Tipo"]=="Blanco"]
-        blank=blank_r["ROI"].iloc[0] if not blank_r.empty else None
-        st.session_state["blank_label"]=blank
+        blank_r = edited[edited["Tipo"]=="Blanco"]
+        blank = blank_r["ROI"].iloc[0] if not blank_r.empty else None
+        st.session_state["blank_label"] = blank
         if blank: okbox(f"Blanco: <b>{blank}</b>")
         else: wbox("Sin blanco asignado.")
 
-        # Overlay actualizado
-        use_circ = st.session_state.get("use_circular",False)
-        diam_map = {r["label"]: st.session_state.get("global_diam",18) for r in rois} if use_circ else None
-        tm2=dict(zip(edited["ROI"],edited["Tipo"]))
+        # Overlay
+        use_circ = st.session_state.get("use_circular", False)
+        diam_map = {r["label"]: st.session_state.get("global_diam", 18) for r in rois} if use_circ else None
+        tm2 = dict(zip(edited["ROI"], edited["Tipo"]))
         try:
             ann2 = draw_rois(img, rois, tm2, circular=use_circ, diam_map=diam_map)
             st.session_state["annotated_img"] = ann2
-            legend = " ".join(
-                f'<span style="background:{c};color:{TEXT};padding:2px 8px;'
-                f'border-radius:3px;font-size:.7rem;font-weight:700;margin-right:3px;">'
-                f'{TIPO_SHORT[t]}</span>'
-                for t,c in TIPO_COLORS.items() if t!="Sin asignar")
-            st.markdown(f'<p class="slbl">Overlay en tiempo real</p>',unsafe_allow_html=True)
-            st.markdown(legend,unsafe_allow_html=True)
-            st.image(ann2, caption="Los colores se actualizan al instante al editar la tabla", use_container_width=True)
+            st.image(ann2, caption="Overlay actualizado", use_container_width=True)
         except Exception as e:
-            st.error(f"Error al dibujar ROIs: {str(e)}")
-            st.image(img, caption="Imagen sin overlay (error)", use_container_width=True)
+            st.error(f"Error al dibujar ROIs: {e}")
+            st.image(img, use_container_width=True)
 
-        dev=st.session_state.get("device_type","")
-        is_plate=(dev=="Microplaca de 96 pocillos")
+        dev = st.session_state.get("device_type", "")
+        is_plate = (dev == "Microplaca de 96 pocillos")
         if is_plate:
-            tri_grp=detect_triplicates(edited)
-            st.session_state["tri_groups"]=tri_grp
-            with st.expander("Grid 8x12 — distribución de pocillos",expanded=False):
-                st.plotly_chart(plot_plate(edited,tri_grp), use_container_width=True, key="plate_grid_exp")
-            if tri_grp:
-                n_g=len(tri_grp); n_w=sum(len(v) for v in tri_grp.values())
-                ibox(f"<b>{n_g} grupos de triplicados</b> ({n_w} pocillos detectados).")
+            tri_grp = detect_triplicates(edited)
+            st.session_state["tri_groups"] = tri_grp
+            with st.expander("Grid 8x12", expanded=False):
+                st.plotly_chart(plot_plate(edited, tri_grp), use_container_width=True, key="plate_grid_exp")
         footer()
 
     # ── TAB 3: CALIBRACIÓN ─────────────────────────────────────────────────
@@ -1143,154 +1265,128 @@ if pagina=="Análisis":
         if not rois or img is None or adf is None:
             wbox("Complete Captura y Procesamiento primero."); footer(); st.stop()
         blank=st.session_state.get("blank_label")
+        device = st.session_state.get("device_type","")
+        is_tubes = (device == "Tubos de ensayo (3 ROIs circulares)")
 
         with st.expander("Fundamento — absorbancia digital",expanded=False):
-            st.markdown("**A_dig = log₁₀(I_blanco / I_muestra)**\n\n"
-                        "Donde I es la intensidad normalizada del canal (% del total R+G+B). "
-                        "El sistema selecciona el canal más sensible mediante Δ entre el blanco y el estándar máximo.")
+            st.markdown("**A_dig = log₁₀(I_blanco / I_muestra)**")
 
-        if st.button("Extraer RGB y calibrar",key="btn_cal"):
-            with st.spinner("Procesando canales RGB..."):
+        if st.button("Extraer y calibrar",key="btn_cal"):
+            with st.spinner("Procesando..."):
                 use_circ = st.session_state.get("use_circular",False)
-                diam_map = {r["label"]: st.session_state.get("global_diam",18) for r in rois} if use_circ else None
+                df_ext = extract_extended_channels(img, rois, circular=use_circ)
+                if is_tubes:
+                    df_avg, homogeneity_df = average_tube_rois(df_ext, group_col="tube_id")
+                    tube_map = {}
+                    for _, row in adf.iterrows():
+                        label = row["ROI"]
+                        if "_Sup" in label or "_Med" in label or "_Inf" in label:
+                            base = label.split("_")[0]
+                            if base not in tube_map:
+                                tube_map[base] = row.to_dict()
+                    new_rows = []
+                    for _, avg_row in df_avg.iterrows():
+                        tubo_id = avg_row["tube_id"]
+                        base_label = f"Tubo{tubo_id}"
+                        info = tube_map.get(base_label, {"Tipo":"Sin asignar","Nombre":"","Concentracion":0.0,"Unidad":"mg/L","Analito":"Cr(VI)","Factor_dil":1.0})
+                        new_rows.append({"ROI":base_label, "Tipo":info.get("Tipo","Sin asignar"),
+                                         "Nombre":info.get("Nombre",""), "Concentracion":info.get("Concentracion",0.0),
+                                         "Unidad":info.get("Unidad","mg/L"), "Analito":info.get("Analito","Cr(VI)"),
+                                         "Factor_dil":info.get("Factor_dil",1.0)})
+                    adf_avg = pd.DataFrame(new_rows)
+                    st.session_state["homogeneity_df"] = homogeneity_df
+                else:
+                    df_avg = df_ext
+                    adf_avg = adf
+                    st.session_state["homogeneity_df"] = None
 
-                df_rgb = extract_rgb_norm(img, rois, circular=use_circ, diam_map=diam_map)
-                df_abs = calc_absorbance(df_rgb, blank)
-
+                df_abs = calc_absorbance(df_avg, blank)
                 df_merged = df_abs.merge(
-                    adf[["ROI","Tipo","Nombre","Concentracion","Unidad","Analito","Factor_dil"]],
+                    adf_avg[["ROI","Tipo","Nombre","Concentracion","Unidad","Analito","Factor_dil"]],
                     on="ROI",how="left")
-                # Selección de canal por Δ
-                best_ch, deltas = select_channel_by_delta(df_merged, blank)
-                # Calibraciones para los tres canales
                 ch_res = {}
                 std = df_merged[df_merged["Tipo"]=="Estándar"]
                 if len(std)>=2 and "Concentracion" in std.columns:
                     concs = std["Concentracion"].values.astype(float)
-                    for ch in ["R_norm","G_norm","B_norm"]:
-                        if f"A_{ch}" in df_merged.columns:
-                            sigs = std[f"A_{ch}"].dropna().values
+                    for ch in ALL_CHANNELS:
+                        ac = f"A_{ch}"
+                        if ac in df_merged.columns:
+                            sigs = std[ac].dropna().values
                             if len(sigs)>=2:
-                                cal_ch = fit_line(concs, sigs)
-                                if cal_ch:
-                                    bsigs = df_merged.loc[df_merged["Tipo"]=="Blanco", f"A_{ch}"].dropna().values
-                                    ld, lq, proxy = calc_lod_loq(cal_ch, bsigs if len(bsigs)>=2 else None)
-                                    cal_ch.update({"LOD":ld,"LOQ":lq,"lod_proxy":proxy})
-                                    ch_res[ch] = cal_ch
-                st.session_state.update(dict(df_rgb=df_rgb, df_abs=df_abs,
-                                             df_merged=df_merged, best_ch=best_ch,
-                                             all_ch=ch_res, selected_channel=best_ch))
-                okbox(f"Extracción completada. Canal sugerido por Δ: **{best_ch.replace('_norm','')}**")
+                                cal = fit_line(concs, sigs)
+                                if cal:
+                                    bsigs = df_merged.loc[df_merged["Tipo"]=="Blanco", ac].dropna().values
+                                    ld, lq, proxy = calc_lod_loq(cal, bsigs if len(bsigs)>=2 else None)
+                                    cal.update({"LOD":ld,"LOQ":lq,"lod_proxy":proxy})
+                                    ch_res[ch] = cal
+                best_ch, deltas = select_channel_by_delta(df_merged, blank) if blank else ("G_norm",{})
+                st.session_state.update(dict(df_rgb=df_avg, df_abs=df_abs, df_merged=df_merged,
+                                             best_ch=best_ch, all_ch=ch_res,
+                                             selected_channel=best_ch,
+                                             homogeneity_df=st.session_state.get("homogeneity_df")))
+                okbox(f"Extracción completada. Canal sugerido: **{CHANNEL_LABELS.get(best_ch,best_ch)}**")
 
         ch_res = st.session_state.get("all_ch",{})
         df_merged = st.session_state.get("df_merged")
         if df_merged is not None and ch_res:
-            st.markdown("### Barrido de canales RGB")
-            available_channels = [c for c in ["R_norm","G_norm","B_norm"] if c in ch_res]
-            if available_channels:
-                sel_ch = st.selectbox(
-                    "Canal para calibración final",
-                    options=available_channels,
-                    index=available_channels.index(st.session_state.get("selected_channel", available_channels[0])),
-                    format_func=lambda x: x.replace("_norm",""),
-                    key="channel_selector"
-                )
+            st.markdown("### Barrido multicanal")
+            available = [c for c in ALL_CHANNELS if c in ch_res]
+            if available:
+                sel_ch = st.selectbox("Canal para calibración final", options=available,
+                                      index=available.index(st.session_state.get("selected_channel", available[0])),
+                                      format_func=lambda x: CHANNEL_LABELS.get(x,x), key="channel_selector")
                 st.session_state["selected_channel"] = sel_ch
 
-                # Calibrar con el canal elegido
                 std = df_merged[df_merged["Tipo"]=="Estándar"]
-                if len(std)>=2 and f"A_{sel_ch}" in std.columns:
+                if len(std)>=2:
                     concs = std["Concentracion"].values.astype(float)
                     sigs = std[f"A_{sel_ch}"].values.astype(float)
                     cal = fit_line(concs, sigs)
                     if cal:
+                        normalized = False
+                        if cal["m"] < 0:
+                            sigs_inv = -sigs
+                            cal_inv = fit_line(concs, sigs_inv)
+                            if cal_inv and cal_inv["m"] > 0:
+                                cal = cal_inv
+                                normalized = True
+                                st.session_state["normalized_signal"] = True
+                            else:
+                                st.session_state["normalized_signal"] = False
+                        else:
+                            st.session_state["normalized_signal"] = False
+
                         bsigs = df_merged.loc[df_merged["Tipo"]=="Blanco", f"A_{sel_ch}"].dropna().values
                         ld, lq, proxy = calc_lod_loq(cal, bsigs if len(bsigs)>=2 else None)
                         cal.update({"LOD":ld,"LOQ":lq,"lod_proxy":proxy})
                         unit = std["Unidad"].iloc[0] if not std.empty else "mg/L"
                         an = std["Analito"].iloc[0] if not std.empty else "Analito"
-                        png = cal_to_png(cal, concs, sigs, sel_ch, an, unit, ld, lq)
-                        cf = plot_cal(concs, sigs, cal, sel_ch, an, unit, ld, lq)
+                        plot_sigs = sigs if not normalized else sigs_inv
+                        png = cal_to_png(cal, concs, plot_sigs, sel_ch, an, unit, ld, lq, normalized=normalized)
+                        cf = plot_cal(concs, plot_sigs, cal, sel_ch, an, unit, ld, lq, normalized=normalized)
                         rf = plot_residuals(concs, cal, sel_ch)
-                        tg = st.session_state.get("tri_groups",{}) or detect_triplicates(adf)
-                        td = triplate_stats(df_merged, tg, f"A_{sel_ch}") if tg else None
                         st.session_state.update(dict(cal_result=cal, cal_fig=cf, res_fig=rf,
-                                                     cal_concs=concs, cal_sigs=sigs, cal_unit=unit,
-                                                     cal_analyte=an, cal_ch=sel_ch, cal_png=png,
-                                                     tri_df=td))
-                        st.success(f"Calibración actualizada para canal {sel_ch.replace('_norm','')}")
+                                                     cal_concs=concs, cal_sigs=plot_sigs,
+                                                     cal_unit=unit, cal_analyte=an,
+                                                     cal_ch=sel_ch, cal_png=png))
+                        if normalized:
+                            st.info("Se aplicó normalización automática de la señal para obtener pendiente positiva.")
 
-            # Mostrar gráficas de barrido (R²)
             if ch_res:
                 st.plotly_chart(plot_channels(ch_res), use_container_width=True)
-                # Tabla comparativa
-                df_ch_tbl = []
-                for ch in ["R_norm","G_norm","B_norm"]:
-                    if ch in ch_res:
-                        cal = ch_res[ch]
-                        r2i,_ = interpret_r2(cal["r2"])
-                        df_ch_tbl.append({
-                            "Canal": ch.replace("_norm",""),
-                            "R²": f"{cal['r2']:.5f}",
-                            "Interpretación": r2i,
-                            "Pendiente": f"{cal['m']:.4f}",
-                            "LOD": f"{cal.get('LOD', float('nan')):.3f}",
-                            "LOQ": f"{cal.get('LOQ', float('nan')):.3f}"
-                        })
-                if df_ch_tbl:
-                    st.dataframe(pd.DataFrame(df_ch_tbl), use_container_width=True, hide_index=True)
+                cols_to_plot = ["R_norm","G_norm","B_norm","H","S","V","L","a","b_lab"]
+                tabs = st.tabs([CHANNEL_LABELS.get(c,c) for c in cols_to_plot if c in ch_res])
+                for i, ch in enumerate([c for c in cols_to_plot if c in ch_res]):
+                    with tabs[i]:
+                        if ch in ch_res:
+                            cal_ch = ch_res[ch]
+                            concs = df_merged[df_merged["Tipo"]=="Estándar"]["Concentracion"].values.astype(float)
+                            sigs_ch = df_merged[df_merged["Tipo"]=="Estándar"][f"A_{ch}"].values
+                            fig_ch = plot_cal(concs, sigs_ch, cal_ch, ch, st.session_state.get("cal_analyte",""), st.session_state.get("cal_unit",""),
+                                              cal_ch.get("LOD",np.nan), cal_ch.get("LOQ",np.nan))
+                            st.plotly_chart(fig_ch, use_container_width=True)
 
-                # Mensaje pendiente negativa si aplica
-                cal = st.session_state.get("cal_result")
-                if cal:
-                    slope_msg, slope_col = interpret_slope(cal["m"])
-                    st.markdown(
-                        f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};'
-                        f'border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;'
-                        f'color:{TEXT};margin:8px 0;line-height:1.5;">'
-                        f'<b>Pendiente {cal["m"]:+.4f}:</b> {slope_msg}</div>',
-                        unsafe_allow_html=True)
-
-        # Mostrar métricas y cuantificación
-        cal = st.session_state.get("cal_result")
-        if cal:
-            sel_ch = st.session_state.get("selected_channel","G_norm")
-            unit = st.session_state.get("cal_unit","mg/L")
-            ld = cal.get("LOD",float("nan")); lq = cal.get("LOQ",float("nan"))
-            r2_int = interpret_r2(cal["r2"])
-
-            st.markdown(f"<hr style='border-color:{BORDER};margin:16px 0;'>",unsafe_allow_html=True)
-            slbl("Métricas de calibración final")
-            c1,c2,c3,c4=st.columns(4)
-            mc("R²",f"{cal['r2']:.5f}",interpret=r2_int,explain=STAT_EXPL["R2"],col=c1)
-            mc("Pendiente m",f"{cal['m']:.4f}",explain=STAT_EXPL["slope"],col=c2)
-            mc("LOD",f"{ld:.3f}" if not math.isnan(ld) else "N/D",explain=STAT_EXPL["LOD"],col=c3)
-            mc("LOQ",f"{lq:.3f}" if not math.isnan(lq) else "N/D",explain=STAT_EXPL["LOQ"],col=c4)
-            if cal.get("lod_proxy"): ibox("LOD/LOQ calculados con error residual como proxy. Incluya réplicas del blanco para mayor rigor.")
-
-            t1,t2 = st.tabs(["Curva de calibración","Residuos"])
-            with t1:
-                if st.session_state.get("cal_fig"): st.plotly_chart(st.session_state["cal_fig"],use_container_width=True)
-            with t2:
-                if st.session_state.get("res_fig"):
-                    st.plotly_chart(st.session_state["res_fig"],use_container_width=True)
-                    ibox("Residuos aleatorios alrededor de cero = buen ajuste. Patrón sistemático = no-linealidad.")
-
-            if st.session_state.get("tri_df") is not None:
-                td=st.session_state["tri_df"]
-                if not td.empty:
-                    with st.expander("Estadísticas de triplicados",expanded=True):
-                        st.dataframe(td,use_container_width=True,hide_index=True)
-                        bad=td[td["CV_%"]>10] if "CV_%" in td.columns else pd.DataFrame()
-                        if not bad.empty: wbox(f"CV% > 10% en columnas: {', '.join(bad['Grupo'].tolist())}. Revisar técnica.")
-
-            with st.expander("Tabla de absorbancias digitales"):
-                dm=st.session_state.get("df_merged")
-                if dm is not None:
-                    cols=[c for c in ["ROI","Tipo","Concentracion","R_norm","G_norm","B_norm",f"A_{sel_ch}"] if c in dm.columns]
-                    st.dataframe(dm[cols].round(4),use_container_width=True)
-                    st.download_button("Descargar CSV",dm[cols].to_csv(index=False).encode(),"elementa_datos.csv","text/csv")
-
+        # Cuantificación de muestras
         st.markdown(f"<hr style='border-color:{BORDER};margin:20px 0;'>",unsafe_allow_html=True)
         slbl("Cuantificación de muestras")
         meth=st.radio("Método",["Calibración externa","Adición de estándar"],horizontal=True)
@@ -1367,6 +1463,7 @@ if pagina=="Análisis":
         unit_pdf=adf2["Unidad"].iloc[0]  if adf2 is not None and not adf2.empty else "mg/L"
         meth_pdf="Adición de estándar" if sa_r else "Calibración externa"
         sel_ch = st.session_state.get("selected_channel","G_norm")
+        normalized = st.session_state.get("normalized_signal", False)
 
         if st.button("Generar reporte PDF",key="btn_pdf"):
             cal_png = st.session_state.get("cal_png")
@@ -1376,15 +1473,14 @@ if pagina=="Análisis":
                     cal_png = cal_to_png(cal, st.session_state.get("cal_concs"),
                                          st.session_state.get("cal_sigs"),
                                          sel_ch, an_pdf, unit_pdf,
-                                         cal.get("LOD",np.nan), cal.get("LOQ",np.nan))
-            # Generar barrido de canales PNG
+                                         cal.get("LOD",np.nan), cal.get("LOQ",np.nan), normalized=normalized)
             sweep_pngs = []
             ch_res = st.session_state.get("all_ch",{})
             if ch_res and df_merged is not None:
                 std = df_merged[df_merged["Tipo"]=="Estándar"]
                 if len(std)>=2:
                     concs_all = std["Concentracion"].values.astype(float)
-                    for ch in ["R_norm","G_norm","B_norm"]:
+                    for ch in ALL_CHANNELS:
                         if ch in ch_res and f"A_{ch}" in df_merged.columns:
                             sigs = std[f"A_{ch}"].dropna().values
                             cal_ch = ch_res[ch]
@@ -1397,7 +1493,9 @@ if pagina=="Análisis":
                                 st.session_state.get("cal_result"),
                                 st.session_state.get("annotated_img"),
                                 st.session_state.get("tri_df"),
-                                cal_png, sweep_pngs, sel_ch, unit_pdf)
+                                cal_png, sweep_pngs, sel_ch, unit_pdf,
+                                homogeneity_df=st.session_state.get("homogeneity_df"),
+                                normalized=normalized)
                 b64 = base64.b64encode(pdf_b).decode()
                 safe_analyte = sanitize_filename(an_pdf)
                 fname = f"Elementa_{safe_analyte}_PWA_{now_mx():%Y%m%d_%H%M}.pdf"
@@ -1421,13 +1519,13 @@ elif pagina=="Tutorial":
     steps=[
         ("Paso 1 — Preparación de estándares y muestras",
          "Prepare al menos 5 estándares de concentración conocida y un blanco de reactivos. "
-         "Use microplaca o viales con volúmenes iguales. Controle tiempo y temperatura."),
+         "Use microplaca, viales o tubos con volúmenes iguales. Controle tiempo y temperatura."),
         ("Paso 2 — Captura correcta de imágenes",
          "Use iluminación LED difusa, fondo negro mate, cámara paralela, formato PNG. "
-         "Evite reflejos y sobreexposición."),
-        ("Paso 3 — Verificación de detección de pozos",
+         "Evite reflejos y sobreexposición. Utilice la sección 'Ajuste de imagen' para rotar/alinear la foto."),
+        ("Paso 3 — Verificación de detección de pozos/tubos",
          "En la pestaña Captura seleccione el dispositivo, ajuste las coordenadas hasta que las ROIs "
-         "cubran solo el contenido del pocillo. Bloquee ROIs cuando esté conforme."),
+         "cubran solo el contenido del pocillo o tubo. Bloquee ROIs cuando esté conforme."),
         ("Paso 4 — Carga de concentraciones y tipos",
          "En Procesamiento asigne tipos (Blanco, Estándar, Muestra) y concentraciones. "
          "Los triplicados se detectan automáticamente."),
@@ -1470,55 +1568,23 @@ elif pagina=="Biblioteca de Métodos":
     footer()
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FUNDAMENTOS (actualizado para RGB)
+#  FUNDAMENTOS
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif pagina=="Fundamentos":
     st.markdown("<h1>Fundamentos del análisis colorimétrico digital</h1>",unsafe_allow_html=True)
-    st.markdown(f"<p style='color:{MUTED};'>Base científica basada exclusivamente en canales RGB.</p>",unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{MUTED};'>Base científica basada en canales RGB y espacios de color extendidos.</p>",unsafe_allow_html=True)
     topics = {
-        "¿Qué es una ROI?": "Región de Interés. Zona de la imagen (pocillo o vial) de donde se extraen los valores RGB. Pueden ser rectangulares o circulares.",
+        "¿Qué es una ROI?": "Región de Interés. Zona de la imagen de donde se extraen los valores de color. Pueden ser rectangulares, circulares o múltiples por tubo.",
         "Normalización RGB": "%R = R/(R+G+B)×100. Elimina variaciones de iluminación global.",
         "Absorbancia digital": "A = log₁₀(I_blanco / I_muestra). Transforma la intensidad en una señal proporcional a la concentración (análoga a la ley de Beer-Lambert).",
-        "Selección automática del canal": "Se calcula Δ entre el blanco y el estándar más concentrado para R, G y B. El canal con mayor Δ es el más sensible y se recomienda para la calibración.",
-        "Pendiente positiva y negativa": "Si la intensidad del canal disminuye con la concentración, la pendiente es positiva. Si aumenta, será negativa. Ambas son físicamente válidas.",
+        "Barrido multicanal": "Se evalúan 9 canales: R_norm, G_norm, B_norm, Hue, Saturation, Value, L*, a*, b*. El sistema recomienda el canal con mayor Δ entre blanco y estándar máximo.",
+        "Pendiente negativa automática": "Si el canal seleccionado da pendiente negativa, la señal se normaliza automáticamente para obtener una curva creciente, conservando R² y LOD/LOQ.",
         "LOD y LOQ": "Límite de detección y cuantificación. LOD = 3.3·σ/|m|, LOQ = 10·σ/|m|."
     }
     for title, content in topics.items():
         with st.expander(title, expanded=False):
             st.markdown(content)
-    st.markdown("### Ejemplo visual")
-    col1, col2 = st.columns(2)
-    with col1:
-        import matplotlib.pyplot as plt
-        import matplotlib.patches as patches
-        fig, ax = plt.subplots(figsize=(4,3), facecolor='#0f172a')
-        ax.set_facecolor('#0f172a')
-        for i in range(3):
-            for j in range(2):
-                rect = patches.Rectangle((0.1+j*0.35, 0.1+i*0.35), 0.3, 0.3,
-                                         linewidth=1, edgecolor='#4ade80', facecolor='none')
-                ax.add_patch(rect)
-                ax.text(0.25+j*0.35, 0.25+i*0.35, f"T{i*2+j}", color='white', ha='center', va='center', fontsize=8)
-        ax.set_xlim(0,1); ax.set_ylim(0,1)
-        ax.axis('off')
-        buf = BytesIO()
-        plt.savefig(buf, format='png', facecolor='#0f172a', bbox_inches='tight', dpi=120)
-        buf.seek(0)
-        st.image(buf, caption="Ejemplo de ROIs rectangulares", use_container_width=True)
-        plt.close()
-    with col2:
-        x = np.linspace(0,1,6)
-        y = 0.5*x + 0.02 + np.random.normal(0,0.02,6)
-        cal = fit_line(x, y)
-        fig2 = go.Figure()
-        fig2.add_trace(go.Scatter(x=x, y=y, mode='markers', name='Datos'))
-        fig2.add_trace(go.Scatter(x=x, y=cal['m']*x+cal['b'], mode='lines', name='Ajuste'))
-        fig2.update_layout(template='plotly_dark', paper_bgcolor='#0B1120', plot_bgcolor='#0B1120',
-                           margin=dict(l=40,r=20,t=40,b=40), height=280,
-                           title="Curva de calibración de ejemplo",
-                           xaxis_title="Concentración", yaxis_title="Absorbancia")
-        st.plotly_chart(fig2, use_container_width=True)
     footer()
 
 # ══════════════════════════════════════════════════════════════════════════════
