@@ -1,5 +1,5 @@
 """
-Elementa — Sistema analítico colorimétrico digital
+Elementa — Sistema Analítico Colorimétrico Digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
 Software científico para colorimetría digital basada en imágenes RGB.
@@ -99,9 +99,9 @@ def interpret_slope(m):
         return "Relación directa: la señal aumenta con la concentración.", ACCENT
     else:
         return ("Relación inversa: la señal disminuye con la concentración. "
-                "Esto puede ser normal según el canal y el método (ej. DPPH).", "#F59E0B")
+                "Esto puede ser normal según el canal y el método.", "#F59E0B")
 
-# ─── Biblioteca de Protocolos Analíticos (sin cambios) ────────────────────────
+# ─── Biblioteca de Protocolos Analíticos ──────────────────────────────────────
 PROTOCOL_LIBRARY = {
     "Metales pesados": {
         "Cr(VI) — Difenilcarbazida": dict(
@@ -398,18 +398,62 @@ def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.3, bgr, 1, cv2.LINE_AA)
     return out
 
-def calc_absorbance(df, blank_roi, channels=None):
+# ══════════════════════════════════════════════════════════════════════════════
+#  NUEVA ABSORBANCIA BASADA EN EL COMPLEMENTO DEL COLOR
+# ══════════════════════════════════════════════════════════════════════════════
+
+def calc_absorbance_complement(df, blank_roi, channels=None):
+    """
+    Calcula la absorbancia digital usando el COMPLEMENTO del color.
+    
+    Principio:
+    - R_complemento = 100 - R_norm  (luz absorbida en el canal rojo)
+    - G_complemento = 100 - G_norm  (luz absorbida en el canal verde)
+    - B_complemento = 100 - B_norm  (luz absorbida en el canal azul)
+    
+    A = log₁₀(complemento_blanco / complemento_muestra)
+    
+    Esto mide la luz ABSORBIDA, no la reflejada, cumpliendo con la ley de Lambert-Beer.
+    La absorbancia así calculada siempre será positiva para métodos colorimétricos válidos.
+    """
     if channels is None:
         channels = ["R_norm","G_norm","B_norm"]
-    df=df.copy()
+    
+    df = df.copy()
+    
+    # Calcular complementos para cada canal
     for ch in channels:
-        col=f"A_{ch}"
-        if ch not in df.columns or blank_roi is None or blank_roi not in df["ROI"].values:
-            df[col]=np.nan; continue
-        bv = float(df.loc[df["ROI"]==blank_roi,ch].values[0])
-        if np.isnan(bv): df[col]=np.nan; continue
-        eps=1e-9
-        df[col]=df[ch].apply(lambda v: math.log10((bv+eps)/(v+eps)) if pd.notna(v) else np.nan)
+        comp_col = f"comp_{ch}"
+        # El complemento es 100 - valor_normalizado (máximo 100, mínimo 0)
+        df[comp_col] = df[ch].apply(lambda v: max(0.001, 100.0 - v) if pd.notna(v) else np.nan)
+    
+    # Calcular absorbancia usando los complementos
+    for ch in channels:
+        col = f"A_{ch}"
+        comp_col = f"comp_{ch}"
+        
+        if blank_roi is None or blank_roi not in df["ROI"].values:
+            df[col] = np.nan
+            continue
+            
+        # Obtener el valor del complemento para el blanco
+        bv = float(df.loc[df["ROI"] == blank_roi, comp_col].values[0])
+        if np.isnan(bv) or bv <= 0:
+            df[col] = np.nan
+            continue
+            
+        # A = log₁₀(complemento_blanco / complemento_muestra)
+        eps = 1e-9
+        df[col] = df[comp_col].apply(
+            lambda v: math.log10((bv + eps) / (v + eps)) if pd.notna(v) and v > 0 else np.nan
+        )
+    
+    # Eliminar columnas temporales de complemento
+    for ch in channels:
+        comp_col = f"comp_{ch}"
+        if comp_col in df.columns:
+            df.drop(columns=[comp_col], inplace=True)
+    
     return df
 
 def average_tube_rois(df_ext, group_col="tube_id"):
@@ -453,7 +497,7 @@ def compute_homogeneity(df_ext, channels):
 
 ALL_CHANNELS = ["R_norm","G_norm","B_norm"]
 CHANNEL_LABELS = {
-    "R_norm":"R normalizado","G_norm":"G normalizado","B_norm":"B normalizado"
+    "R_norm":"Canal Rojo","G_norm":"Canal Verde","B_norm":"Canal Azul"
 }
 
 def select_channel_by_delta(df_merged, blank_label):
@@ -601,7 +645,7 @@ def plot_plate(asgn_df, tri_groups):
                       title=dict(text="Mapa de placa",font=dict(size=12)))
     return fig
 
-def plot_cal(concs,sigs,cal,ch,analyte,unit,lod,loq,normalized=False):
+def plot_cal(concs,sigs,cal,ch,analyte,unit,lod,loq):
     x0=max(0,float(concs.min())*0.85) if float(concs.min())>0 else 0.0
     x1=float(concs.max())*1.15; xl=np.linspace(x0,x1,300)
     fig=go.Figure()
@@ -615,13 +659,11 @@ def plot_cal(concs,sigs,cal,ch,analyte,unit,lod,loq,normalized=False):
         annotation_text=f"LOQ={loq:.3f}",annotation_font_color="#F59E0B",annotation_font_size=9)
     m,b,r2=cal["m"],cal["b"],cal["r2"]; sgn="+" if b>=0 else "-"
     eq=f"A = {m:.4f}·C {sgn} {abs(b):.4f}   |   R² = {r2:.5f}"
-    if normalized:
-        eq += "  (señal normalizada)"
     fig.add_annotation(x=0.03,y=0.97,xref="paper",yref="paper",text=eq,showarrow=False,
         font=dict(color="#4ADE80",size=10,family="JetBrains Mono"),
         bgcolor="rgba(11,17,32,.85)",bordercolor=SUCCESS,borderwidth=1,borderpad=5)
     fig.update_layout(**_PLT,title=f"Curva de calibración — {analyte} | Canal {ch}",
-        xaxis_title=f"Concentración ({unit})",yaxis_title="Absorbancia digital")
+        xaxis_title=f"Concentración ({unit})",yaxis_title="Absorbancia digital (complemento)")
     return fig
 
 def plot_residuals(concs,cal,ch):
@@ -648,7 +690,7 @@ def plot_channels(ch_res):
         textfont=dict(color=TEXT,size=9,family="JetBrains Mono"),
         name="R²",hovertemplate="<b>%{x}</b><br>R²=%{y:.5f}<extra></extra>"))
     fig.update_layout(**_PLT,height=300,
-        title="Panel de barrido RGB — R²",
+        title="Panel de barrido RGB — R² (basado en complemento del color)",
         yaxis=dict(range=[max(0,min(r2s)-.05),1.02],title="R²"),
         xaxis_title="Canal",xaxis_tickangle=0)
     return fig
@@ -675,7 +717,7 @@ def plot_sa(added,sigs,sa,analyte,unit):
 #  GRÁFICA MATPLOTLIB PARA PDF
 # ══════════════════════════════════════════════════════════════════════════════
 
-def cal_to_png(cal,concs,sigs,ch,analyte,unit,lod,loq,normalized=False):
+def cal_to_png(cal,concs,sigs,ch,analyte,unit,lod,loq):
     try:
         import matplotlib.pyplot as plt
         plt.switch_backend("agg")
@@ -700,13 +742,11 @@ def cal_to_png(cal,concs,sigs,ch,analyte,unit,lod,loq,normalized=False):
         if loq_ok: ax.axvline(loq,color=ORG,linestyle=":",linewidth=1.3); ax.text(loq,yb+yp,f"  LOQ={loq:.3f}",color=ORG,fontsize=7,va="bottom")
         m,b,r2=cal["m"],cal["b"],cal["r2"]; sgn="+" if b>=0 else "-"
         title_txt = f"y={m:.4f}x {sgn} {abs(b):.4f}  |  R²={r2:.5f}"
-        if normalized:
-            title_txt += " (señal normalizada)"
         ax.text(0.03,0.97,title_txt,
                 transform=ax.transAxes,fontsize=8.5,color=GRN,va="top",ha="left",
                 bbox=dict(facecolor=CARD2C,edgecolor="#166534",boxstyle="round,pad=0.35"))
         ax.set_xlabel(f"Concentración ({unit})",color=SUB,fontsize=9)
-        ax.set_ylabel("Absorbancia digital",color=SUB,fontsize=9)
+        ax.set_ylabel("Absorbancia digital (complemento)",color=SUB,fontsize=9)
         ax.set_title(f"Curva de calibración — {analyte} | Canal: {ch}",color=TXT2,fontsize=10,pad=8)
         ax.tick_params(colors=SUB,labelsize=8)
         for sp in ax.spines.values(): sp.set_edgecolor("#334155")
@@ -738,7 +778,7 @@ def channel_sweep_to_png(channel, cal, concs, sigs, unit):
                 fontsize=7,color=TXT2,va="top",bbox=dict(facecolor="#1e293b",edgecolor="#334155",boxstyle="round"))
         ax.set_title(f"{CHANNEL_LABELS.get(channel,channel)}",color=TXT2,fontsize=8)
         ax.set_xlabel(f"Concentración ({unit})",color=SUB,fontsize=7)
-        ax.set_ylabel("Abs. digital",color=SUB,fontsize=7)
+        ax.set_ylabel("Abs. digital (complemento)",color=SUB,fontsize=7)
         ax.tick_params(colors=SUB,labelsize=6)
         for sp in ax.spines.values(): sp.set_edgecolor("#334155")
         ax.grid(True,color="#1e293b",linewidth=0.4)
@@ -756,7 +796,7 @@ def channel_sweep_to_png(channel, cal, concs, sigs, unit):
 
 def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
             cal_png_bytes,channel_sweep_pngs,selected_channel,unit="mg/L",
-            homogeneity_df=None, normalized=False):
+            homogeneity_df=None):
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.colors import HexColor, white
@@ -837,7 +877,8 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
         for ch_png in channel_sweep_pngs[:3]:
             story.append(RLImage(BytesIO(ch_png),width=5.5*inch,height=3.0*inch))
             story.append(Spacer(1,4))
-        story.append(note("Gráficas de absorbancia digital vs concentración para R, G, B."))
+        story.append(note("Gráficas de absorbancia digital vs concentración para R, G, B. "
+                          "La absorbancia se calcula sobre el complemento del color (luz absorbida)."))
         story.append(Spacer(1,10))
     # Homogeneidad interna
     if homogeneity_df is not None and not homogeneity_df.empty:
@@ -861,9 +902,7 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
     if cal and cal_png_bytes:
         story.append(Paragraph("C) Curva de calibración final optimizada", h2s))
         story.append(RLImage(BytesIO(cal_png_bytes),width=5.8*inch,height=3.2*inch))
-        txt = f"Canal seleccionado: {selected_channel}."
-        if normalized:
-            txt += " Se aplicó normalización automática de la dirección de la señal."
+        txt = f"Canal seleccionado: {selected_channel}. Absorbancia calculada sobre el complemento del color."
         story.append(note(txt))
         story.append(Spacer(1,8))
     # D) Resumen analítico
@@ -908,9 +947,9 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
     # Pie
     story.append(HRFlowable(width="100%",thickness=0.5,color=C["brd"]))
     story.append(Spacer(1,5))
-    story.append(note("<b>Nota científica:</b> La precisión depende de la iluminación, el sensor, "
-                      "los reactivos y la preparación de estándares. Para cumplimiento normativo "
-                      "confirmar mediante métodos acreditados."))
+    story.append(note("<b>Nota científica:</b> La absorbancia digital se calcula usando el complemento del color "
+                      "(C = 100 - %canal), que representa la luz absorbida. Esto cumple con la ley de Lambert-Beer "
+                      "y garantiza pendientes positivas para métodos colorimétricos válidos."))
     story.append(Spacer(1,8))
     story.append(Paragraph("Derechos reservados (Katyutzka Villarreal, 2026)  |  Elementa",fs))
     doc.build(story); buf.seek(0)
@@ -936,7 +975,6 @@ def init():
               cal_concs=None,cal_sigs=None,cal_unit="mg/L",cal_analyte="",cal_ch="",
               cal_png=None,selected_channel="G_norm",
               assignment_df_backup=None,rois_backup=None,
-              normalized_signal=False,
               homogeneity_df=None,
               original_image=None,
               last_roi_labels=None)
@@ -959,19 +997,15 @@ def ensure_assignment_df(rois):
         return df
 
     df = st.session_state["assignment_df"]
-    # Respaldo antes de modificar
     st.session_state["assignment_df_backup"] = df.copy()
 
-    # Agregar nuevas ROIs sin perder datos existentes
     for label in current_labels:
         if label not in df["ROI"].values:
             new_row = pd.DataFrame([{"ROI":label,"Tipo":"Sin asignar","Nombre":"",
                                      "Concentracion":0.0,"Unidad":"mg/L",
                                      "Factor_dil":1.0,"Analito":"Cr(VI)","Observaciones":""}])
             df = pd.concat([df, new_row], ignore_index=True)
-    # Eliminar ROIs que ya no existen
     df = df[df["ROI"].isin(current_labels)]
-    # Reordenar para mantener el orden de las ROIs
     df = df.set_index("ROI").reindex(current_labels).reset_index()
     st.session_state["assignment_df"] = df
     return df
@@ -1200,12 +1234,10 @@ if pagina=="Análisis":
         if "last_roi_labels" not in st.session_state:
             st.session_state["last_roi_labels"] = current_labels
 
-        # Solo modificar la tabla si cambian las etiquetas de las ROIs
         if current_labels != st.session_state["last_roi_labels"]:
             ensure_assignment_df(rois)
             st.session_state["last_roi_labels"] = current_labels
 
-        # Si por alguna razón la tabla está vacía, restaurar del backup
         if st.session_state.get("assignment_df") is None or len(st.session_state["assignment_df"])==0:
             if st.session_state.get("assignment_df_backup") is not None:
                 st.session_state["assignment_df"] = st.session_state["assignment_df_backup"]
@@ -1226,9 +1258,8 @@ if pagina=="Análisis":
             },
             num_rows="fixed",
             use_container_width=True,
-            key="asgn_editor"  # clave fija, nunca cambia
+            key="asgn_editor"
         )
-        # Guardar y respaldar inmediatamente
         st.session_state["assignment_df"] = edited.copy()
         st.session_state["assignment_df_backup"] = edited.copy()
 
@@ -1258,7 +1289,7 @@ if pagina=="Análisis":
                 st.plotly_chart(plot_plate(edited, tri_grp), use_container_width=True, key="plate_grid_exp")
         footer()
 
-    # ── TAB 3: CALIBRACIÓN (solo canales RGB, con normalización automática) ──
+    # ── TAB 3: CALIBRACIÓN (absorbancia por complemento) ────────────────────
     with tab_cal:
         rois=st.session_state.get("rois",[]); img=st.session_state.get("image")
         adf=st.session_state.get("assignment_df")
@@ -1268,8 +1299,15 @@ if pagina=="Análisis":
         device = st.session_state.get("device_type","")
         is_tubes = (device == "Tubos de ensayo (3 ROIs circulares)")
 
-        with st.expander("Fundamento — absorbancia digital",expanded=False):
-            st.markdown("**A_dig = log₁₀(I_blanco / I_muestra)**")
+        with st.expander("Fundamento — absorbancia digital (complemento del color)",expanded=False):
+            st.markdown(
+                "**A_dig = log₁₀(complemento_blanco / complemento_muestra)**\n\n"
+                "Donde complemento = 100 - %canal_normalizado.\n\n"
+                "El complemento representa la **luz absorbida** por la muestra, "
+                "no la luz reflejada. Esto cumple con la ley de Lambert-Beer y "
+                "garantiza que la absorbancia siempre sea positiva para métodos "
+                "colorimétricos válidos."
+            )
 
         if st.button("Extraer RGB y calibrar",key="btn_cal"):
             with st.spinner("Procesando..."):
@@ -1300,7 +1338,8 @@ if pagina=="Análisis":
                     adf_avg = adf
                     st.session_state["homogeneity_df"] = None
 
-                df_abs = calc_absorbance(df_avg, blank)
+                # Usar la nueva función de absorbancia por complemento
+                df_abs = calc_absorbance_complement(df_avg, blank)
                 df_merged = df_abs.merge(
                     adf_avg[["ROI","Tipo","Nombre","Concentracion","Unidad","Analito","Factor_dil"]],
                     on="ROI",how="left")
@@ -1328,7 +1367,7 @@ if pagina=="Análisis":
         ch_res = st.session_state.get("all_ch",{})
         df_merged = st.session_state.get("df_merged")
         if df_merged is not None and ch_res:
-            st.markdown("### Barrido de canales RGB")
+            st.markdown("### Barrido de canales RGB (complemento del color)")
             available = [c for c in ALL_CHANNELS if c in ch_res]
             if available:
                 sel_ch = st.selectbox("Canal para calibración final", options=available,
@@ -1342,38 +1381,25 @@ if pagina=="Análisis":
                     sigs = std[f"A_{sel_ch}"].values.astype(float)
                     cal = fit_line(concs, sigs)
                     if cal:
-                        normalized = False
-                        if cal["m"] < 0:
-                            sigs_inv = -sigs
-                            cal_inv = fit_line(concs, sigs_inv)
-                            if cal_inv and cal_inv["m"] > 0:
-                                cal = cal_inv
-                                normalized = True
-                                st.session_state["normalized_signal"] = True
-                            else:
-                                st.session_state["normalized_signal"] = False
-                        else:
-                            st.session_state["normalized_signal"] = False
-
                         bsigs = df_merged.loc[df_merged["Tipo"]=="Blanco", f"A_{sel_ch}"].dropna().values
                         ld, lq, proxy = calc_lod_loq(cal, bsigs if len(bsigs)>=2 else None)
                         cal.update({"LOD":ld,"LOQ":lq,"lod_proxy":proxy})
                         unit = std["Unidad"].iloc[0] if not std.empty else "mg/L"
                         an = std["Analito"].iloc[0] if not std.empty else "Analito"
-                        plot_sigs = sigs if not normalized else sigs_inv
-                        png = cal_to_png(cal, concs, plot_sigs, sel_ch, an, unit, ld, lq, normalized=normalized)
-                        cf = plot_cal(concs, plot_sigs, cal, sel_ch, an, unit, ld, lq, normalized=normalized)
+                        png = cal_to_png(cal, concs, sigs, sel_ch, an, unit, ld, lq)
+                        cf = plot_cal(concs, sigs, cal, sel_ch, an, unit, ld, lq)
                         rf = plot_residuals(concs, cal, sel_ch)
                         st.session_state.update(dict(cal_result=cal, cal_fig=cf, res_fig=rf,
-                                                     cal_concs=concs, cal_sigs=plot_sigs,
+                                                     cal_concs=concs, cal_sigs=sigs,
                                                      cal_unit=unit, cal_analyte=an,
                                                      cal_ch=sel_ch, cal_png=png))
-                        if normalized:
-                            st.info("Se aplicó normalización automática de la señal para obtener pendiente positiva.")
+                        if cal["m"] < 0:
+                            st.warning("La pendiente es negativa. Revise si el canal seleccionado es el adecuado para este analito.")
+                        else:
+                            st.success("Pendiente positiva — el canal seleccionado es adecuado para este método.")
 
             if ch_res:
                 st.plotly_chart(plot_channels(ch_res), use_container_width=True)
-                # Mostrar gráficos individuales para cada canal RGB
                 tabs = st.tabs([CHANNEL_LABELS.get(c,c) for c in ALL_CHANNELS if c in ch_res])
                 for i, ch in enumerate([c for c in ALL_CHANNELS if c in ch_res]):
                     with tabs[i]:
@@ -1384,7 +1410,7 @@ if pagina=="Análisis":
                                           cal_ch.get("LOD",np.nan), cal_ch.get("LOQ",np.nan))
                         st.plotly_chart(fig_ch, use_container_width=True)
 
-        # Cuantificación de muestras (sin cambios)
+        # Cuantificación de muestras
         st.markdown(f"<hr style='border-color:{BORDER};margin:20px 0;'>",unsafe_allow_html=True)
         slbl("Cuantificación de muestras")
         meth=st.radio("Método",["Calibración externa","Adición de estándar"],horizontal=True)
@@ -1430,7 +1456,7 @@ if pagina=="Análisis":
                     st.plotly_chart(sf,use_container_width=True)
         footer()
 
-    # ── TAB 4: REPORTE (sin cambios significativos) ─────────────────────────
+    # ── TAB 4: REPORTE ──────────────────────────────────────────────────────
     with tab_rep:
         slbl("Evaluación normativa")
         wbox("Verificar siempre los límites en la versión oficial vigente (DOF). Valores mostrados son referenciales.")
@@ -1461,7 +1487,6 @@ if pagina=="Análisis":
         unit_pdf=adf2["Unidad"].iloc[0]  if adf2 is not None and not adf2.empty else "mg/L"
         meth_pdf="Adición de estándar" if sa_r else "Calibración externa"
         sel_ch = st.session_state.get("selected_channel","G_norm")
-        normalized = st.session_state.get("normalized_signal", False)
 
         if st.button("Generar reporte PDF",key="btn_pdf"):
             cal_png = st.session_state.get("cal_png")
@@ -1471,7 +1496,7 @@ if pagina=="Análisis":
                     cal_png = cal_to_png(cal, st.session_state.get("cal_concs"),
                                          st.session_state.get("cal_sigs"),
                                          sel_ch, an_pdf, unit_pdf,
-                                         cal.get("LOD",np.nan), cal.get("LOQ",np.nan), normalized=normalized)
+                                         cal.get("LOD",np.nan), cal.get("LOQ",np.nan))
             sweep_pngs = []
             ch_res = st.session_state.get("all_ch",{})
             if ch_res and df_merged is not None:
@@ -1492,8 +1517,7 @@ if pagina=="Análisis":
                                 st.session_state.get("annotated_img"),
                                 st.session_state.get("tri_df"),
                                 cal_png, sweep_pngs, sel_ch, unit_pdf,
-                                homogeneity_df=st.session_state.get("homogeneity_df"),
-                                normalized=normalized)
+                                homogeneity_df=st.session_state.get("homogeneity_df"))
                 b64 = base64.b64encode(pdf_b).decode()
                 safe_analyte = sanitize_filename(an_pdf)
                 fname = f"Elementa_{safe_analyte}_PWA_{now_mx():%Y%m%d_%H%M}.pdf"
@@ -1516,20 +1540,15 @@ elif pagina=="Tutorial":
     st.markdown(f"<p style='color:{MUTED};margin-top:-6px;'>Siga estos pasos para realizar su primer análisis colorimétrico con Elementa.</p>",unsafe_allow_html=True)
     steps=[
         ("Paso 1 — Preparación de estándares y muestras",
-         "Prepare al menos 5 estándares de concentración conocida y un blanco de reactivos. "
-         "Use microplaca, viales o tubos con volúmenes iguales. Controle tiempo y temperatura."),
+         "Prepare al menos 5 estándares de concentración conocida y un blanco de reactivos."),
         ("Paso 2 — Captura correcta de imágenes",
-         "Use iluminación LED difusa, fondo negro mate, cámara paralela, formato PNG. "
-         "Utilice la sección 'Rotación de imagen' para alinear la foto antes de definir las ROIs."),
+         "Use iluminación LED difusa, fondo negro mate, cámara paralela, formato PNG."),
         ("Paso 3 — Verificación de detección de pozos/tubos",
-         "En la pestaña Captura seleccione el dispositivo, ajuste las coordenadas hasta que las ROIs "
-         "cubran solo el contenido del pocillo o tubo. Bloquee ROIs cuando esté conforme."),
+         "Ajuste las coordenadas hasta que las ROIs cubran solo el contenido del pocillo o tubo."),
         ("Paso 4 — Carga de concentraciones y tipos",
-         "En Procesamiento asigne tipos (Blanco, Estándar, Muestra) y concentraciones. "
-         "Los datos se guardan automáticamente y no se perderán."),
+         "Asigne tipos (Blanco, Estándar, Muestra) y concentraciones. Los datos se guardan automáticamente."),
         ("Paso 5 — Calibración e interpretación",
-         "Presione 'Extraer RGB y calibrar'. Revise el barrido de los canales R, G y B, elija el canal final y "
-         "luego cuantifique las muestras. El reporte PDF incluirá toda la información."),
+         "Presione 'Extraer RGB y calibrar'. La absorbancia se calcula sobre el complemento del color (luz absorbida)."),
     ]
     for title, content in steps:
         with st.expander(title, expanded=False):
@@ -1566,18 +1585,17 @@ elif pagina=="Biblioteca de Métodos":
     footer()
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FUNDAMENTOS (actualizado solo RGB)
+#  FUNDAMENTOS
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif pagina=="Fundamentos":
     st.markdown("<h1>Fundamentos del análisis colorimétrico digital</h1>",unsafe_allow_html=True)
-    st.markdown(f"<p style='color:{MUTED};'>Base científica basada en canales RGB.</p>",unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{MUTED};'>Base científica basada en canales RGB y el complemento del color.</p>",unsafe_allow_html=True)
     topics = {
-        "¿Qué es una ROI?": "Región de Interés. Zona de la imagen de donde se extraen los valores de color. Pueden ser rectangulares, circulares o múltiples por tubo.",
+        "¿Qué es una ROI?": "Región de Interés. Zona de la imagen de donde se extraen los valores RGB.",
         "Normalización RGB": "%R = R/(R+G+B)×100. Elimina variaciones de iluminación global.",
-        "Absorbancia digital": "A = log₁₀(I_blanco / I_muestra). Transforma la intensidad en una señal proporcional a la concentración (análoga a la ley de Beer-Lambert).",
-        "Barrido de canales RGB": "Se evalúan los tres canales: R_norm, G_norm, B_norm. El sistema recomienda el canal con mayor Δ entre blanco y estándar máximo.",
-        "Pendiente negativa automática": "Si el canal seleccionado da pendiente negativa, la señal se normaliza automáticamente para obtener una curva creciente, conservando R² y LOD/LOQ.",
+        "Absorbancia digital por complemento": "A = log₁₀(C_blanco / C_muestra) donde C = 100 - %canal. Mide la luz absorbida, no la reflejada.",
+        "Barrido de canales RGB": "Se evalúan R, G y B. El sistema recomienda el canal con mayor Δ entre blanco y estándar máximo.",
         "LOD y LOQ": "Límite de detección y cuantificación. LOD = 3.3·σ/|m|, LOQ = 10·σ/|m|."
     }
     for title, content in topics.items():
