@@ -1,5 +1,5 @@
 """
-Elementa — Sistema analítico colorimétrico digital
+Elementa — sistema analítico colorimétrico digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
 Software científico para colorimetría digital basada en imágenes RGB.
@@ -99,9 +99,9 @@ def interpret_slope(m):
         return "Relación directa: la señal aumenta con la concentración.", ACCENT
     else:
         return ("Relación inversa: la señal disminuye con la concentración. "
-                "Esto puede ser normal según el canal y el método.", "#F59E0B")
+                "Esto puede ser normal según el canal y el método (ej. DPPH).", "#F59E0B")
 
-# ─── Biblioteca de Protocolos Analíticos ──────────────────────────────────────
+# ─── Biblioteca de Protocolos Analíticos ─────────────────────────────────────
 PROTOCOL_LIBRARY = {
     "Metales pesados": {
         "Cr(VI) — Difenilcarbazida": dict(
@@ -327,7 +327,6 @@ def gen_rois_tubes(x0,y0,radius,h,ntubes,dx):
     return rois
 
 def extract_rgb_channels(img, rois, circular=True, diam_map=None):
-    """Extrae R, G, B y calcula R_norm, G_norm, B_norm (solo RGB)."""
     H, W = img.shape[:2]
     rows = []
     for roi in rois:
@@ -398,62 +397,30 @@ def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.3, bgr, 1, cv2.LINE_AA)
     return out
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  NUEVA ABSORBANCIA BASADA EN EL COMPLEMENTO DEL COLOR
-# ══════════════════════════════════════════════════════════════════════════════
-
 def calc_absorbance_complement(df, blank_roi, channels=None):
-    """
-    Calcula la absorbancia digital usando el COMPLEMENTO del color.
-    
-    Principio:
-    - R_complemento = 100 - R_norm  (luz absorbida en el canal rojo)
-    - G_complemento = 100 - G_norm  (luz absorbida en el canal verde)
-    - B_complemento = 100 - B_norm  (luz absorbida en el canal azul)
-    
-    A = log₁₀(complemento_blanco / complemento_muestra)
-    
-    Esto mide la luz ABSORBIDA, no la reflejada, cumpliendo con la ley de Lambert-Beer.
-    La absorbancia así calculada siempre será positiva para métodos colorimétricos válidos.
-    """
     if channels is None:
         channels = ["R_norm","G_norm","B_norm"]
-    
     df = df.copy()
-    
-    # Calcular complementos para cada canal
+    # Complementos
     for ch in channels:
         comp_col = f"comp_{ch}"
-        # El complemento es 100 - valor_normalizado (máximo 100, mínimo 0)
         df[comp_col] = df[ch].apply(lambda v: max(0.001, 100.0 - v) if pd.notna(v) else np.nan)
-    
-    # Calcular absorbancia usando los complementos
     for ch in channels:
         col = f"A_{ch}"
         comp_col = f"comp_{ch}"
-        
         if blank_roi is None or blank_roi not in df["ROI"].values:
-            df[col] = np.nan
-            continue
-            
-        # Obtener el valor del complemento para el blanco
+            df[col] = np.nan; continue
         bv = float(df.loc[df["ROI"] == blank_roi, comp_col].values[0])
         if np.isnan(bv) or bv <= 0:
-            df[col] = np.nan
-            continue
-            
-        # A = log₁₀(complemento_blanco / complemento_muestra)
+            df[col] = np.nan; continue
         eps = 1e-9
         df[col] = df[comp_col].apply(
             lambda v: math.log10((bv + eps) / (v + eps)) if pd.notna(v) and v > 0 else np.nan
         )
-    
-    # Eliminar columnas temporales de complemento
     for ch in channels:
         comp_col = f"comp_{ch}"
         if comp_col in df.columns:
             df.drop(columns=[comp_col], inplace=True)
-    
     return df
 
 def average_tube_rois(df_ext, group_col="tube_id"):
@@ -690,7 +657,7 @@ def plot_channels(ch_res):
         textfont=dict(color=TEXT,size=9,family="JetBrains Mono"),
         name="R²",hovertemplate="<b>%{x}</b><br>R²=%{y:.5f}<extra></extra>"))
     fig.update_layout(**_PLT,height=300,
-        title="Panel de barrido RGB — R² (basado en complemento del color)",
+        title="Panel de barrido RGB — R² (complemento del color)",
         yaxis=dict(range=[max(0,min(r2s)-.05),1.02],title="R²"),
         xaxis_title="Canal",xaxis_tickangle=0)
     return fig
@@ -873,14 +840,13 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
         story.append(Spacer(1,8))
     # B) Barrido de canales RGB
     if channel_sweep_pngs and len(channel_sweep_pngs)>0:
-        story.append(Paragraph("B) Barrido de canales RGB — selección de longitud de onda digital", h2s))
+        story.append(Paragraph("B) Barrido de canales RGB", h2s))
         for ch_png in channel_sweep_pngs[:3]:
             story.append(RLImage(BytesIO(ch_png),width=5.5*inch,height=3.0*inch))
             story.append(Spacer(1,4))
-        story.append(note("Gráficas de absorbancia digital vs concentración para R, G, B. "
-                          "La absorbancia se calcula sobre el complemento del color (luz absorbida)."))
+        story.append(note("Absorbancia calculada sobre el complemento del color (luz absorbida)."))
         story.append(Spacer(1,10))
-    # Homogeneidad interna
+    # Homogeneidad
     if homogeneity_df is not None and not homogeneity_df.empty:
         story.append(Paragraph("Control de homogeneidad interna en tubos", h2s))
         story.append(note("CV% < 5% excelente, 5-10% aceptable, >10% revisar."))
@@ -898,14 +864,13 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
                    for _,row in df_rgb[cols].round(2).iterrows()]
         cw=[.9*inch]+[.85*inch]*(len(cols)-1)
         story.append(dtbl(td,cw)); story.append(Spacer(1,10))
-    # C) Curva de calibración final
+    # Curva final
     if cal and cal_png_bytes:
-        story.append(Paragraph("C) Curva de calibración final optimizada", h2s))
+        story.append(Paragraph("C) Curva de calibración final", h2s))
         story.append(RLImage(BytesIO(cal_png_bytes),width=5.8*inch,height=3.2*inch))
-        txt = f"Canal seleccionado: {selected_channel}. Absorbancia calculada sobre el complemento del color."
-        story.append(note(txt))
+        story.append(note(f"Canal seleccionado: {selected_channel}. Absorbancia sobre el complemento del color."))
         story.append(Spacer(1,8))
-    # D) Resumen analítico
+    # Resumen analítico
     if cal:
         story.append(Paragraph("D) Resumen analítico", h2s))
         lod=cal.get("LOD",float("nan")); loq=cal.get("LOQ",float("nan"))
@@ -933,11 +898,10 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
         td2=[cols]+[[str(v) if v is not None else "N/D" for v in row] for _,row in tri_df.iterrows()]
         cw2=[max(.7*inch,7.3*inch/len(cols))]*len(cols)
         story.append(dtbl(td2,cw2,C["grn"])); story.append(Spacer(1,10))
-    # E) Resultados de muestras
+    # Resultados
     if df_results is not None and not df_results.empty:
         story.append(Paragraph("E) Resultados de cuantificación", h2s))
-        story.append(note("Conc_calc: calculada de la curva (x=(A-b)/m). "
-                          "Conc_corregida: multiplicada por el factor de dilución."))
+        story.append(note("Conc_calc: (A-b)/m. Conc_corregida: × factor dilución."))
         story.append(Spacer(1,4))
         cols=list(df_results.columns)
         td3=[cols]+[[f"{v:.3f}" if isinstance(v,float) else str(v) for v in row]
@@ -947,9 +911,8 @@ def gen_pdf(analyte,method,df_rgb,df_results,cal,annotated_img,tri_df,
     # Pie
     story.append(HRFlowable(width="100%",thickness=0.5,color=C["brd"]))
     story.append(Spacer(1,5))
-    story.append(note("<b>Nota científica:</b> La absorbancia digital se calcula usando el complemento del color "
-                      "(C = 100 - %canal), que representa la luz absorbida. Esto cumple con la ley de Lambert-Beer "
-                      "y garantiza pendientes positivas para métodos colorimétricos válidos."))
+    story.append(note("<b>Nota científica:</b> La absorbancia se calcula sobre el complemento del color, "
+                      "cumpliendo la ley de Lambert-Beer."))
     story.append(Spacer(1,8))
     story.append(Paragraph("Derechos reservados (Katyutzka Villarreal, 2026)  |  Elementa",fs))
     doc.build(story); buf.seek(0)
@@ -961,7 +924,7 @@ def sanitize_filename(name):
     return name
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SESSION STATE
+#  SESSION STATE (CON BUFFER ESTABLE)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def init():
@@ -977,7 +940,8 @@ def init():
               assignment_df_backup=None,rois_backup=None,
               homogeneity_df=None,
               original_image=None,
-              last_roi_labels=None)
+              last_roi_labels=None,
+              assignment_editor_data=None)  # buffer estable
     for k,v in defs.items():
         if k not in st.session_state: st.session_state[k]=v
 
@@ -993,7 +957,7 @@ def ensure_assignment_df(rois):
                             "Factor_dil":1.0,"Analito":"Cr(VI)","Observaciones":""}
                            for label in current_labels])
         st.session_state["assignment_df"] = df
-        st.session_state["assignment_df_backup"] = df.copy()
+        st.session_state["assignment_editor_data"] = df.copy()
         return df
 
     df = st.session_state["assignment_df"]
@@ -1008,6 +972,7 @@ def ensure_assignment_df(rois):
     df = df[df["ROI"].isin(current_labels)]
     df = df.set_index("ROI").reindex(current_labels).reset_index()
     st.session_state["assignment_df"] = df
+    st.session_state["assignment_editor_data"] = df.copy()
     return df
 
 # ── Helpers UI ─────────────────────────────────────────────────────────────────
@@ -1079,7 +1044,7 @@ if pagina=="Análisis":
             ibox("Cargue o capture una imagen para comenzar.")
             footer(); st.stop()
 
-        # ─── ROTACIÓN EN TIEMPO REAL ────────────────────────────────────────
+        # Rotación en tiempo real
         st.markdown("---")
         slbl("Rotación de imagen")
         rotation_angle = st.selectbox(
@@ -1089,21 +1054,17 @@ if pagina=="Análisis":
         )
 
         def rotate_image(img, angle):
-            if angle == 0:
-                return img
-            if angle == 90:
-                return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
-            if angle == -90:
-                return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            if angle == 180 or angle == -180:
-                return cv2.rotate(img, cv2.ROTATE_180)
+            if angle == 0: return img
+            if angle == 90: return cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)
+            if angle == -90: return cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            if angle == 180 or angle == -180: return cv2.rotate(img, cv2.ROTATE_180)
 
         original = st.session_state["original_image"]
         rotated = rotate_image(original, rotation_angle)
         st.session_state["image"] = rotated
 
         if st.session_state.get("rois"):
-            wbox("Al cambiar la rotación, las ROIs definidas previamente pueden no coincidir con la imagen actual. Se recomienda reajustarlas.")
+            wbox("Al cambiar la rotación, las ROIs definidas previamente pueden no coincidir. Reajuste si es necesario.")
 
         img = rotated
         H, W = img.shape[:2]
@@ -1218,7 +1179,7 @@ if pagina=="Análisis":
             footer(); st.stop()
         footer()
 
-    # ── TAB 2: PROCESAMIENTO (persistencia definitiva) ──────────────────────
+    # ── TAB 2: PROCESAMIENTO (con buffer estable) ───────────────────────────
     with tab_proc:
         rois = st.session_state.get("rois", [])
         if not rois and st.session_state.get("rois_backup"):
@@ -1234,21 +1195,25 @@ if pagina=="Análisis":
         if "last_roi_labels" not in st.session_state:
             st.session_state["last_roi_labels"] = current_labels
 
+        # Si las etiquetas cambiaron, reconstruir la tabla (conservando datos previos)
         if current_labels != st.session_state["last_roi_labels"]:
             ensure_assignment_df(rois)
             st.session_state["last_roi_labels"] = current_labels
+        else:
+            # Si el buffer del editor está vacío, restaurar desde assignment_df
+            if st.session_state.get("assignment_editor_data") is None:
+                st.session_state["assignment_editor_data"] = st.session_state["assignment_df"].copy()
 
-        if st.session_state.get("assignment_df") is None or len(st.session_state["assignment_df"])==0:
-            if st.session_state.get("assignment_df_backup") is not None:
-                st.session_state["assignment_df"] = st.session_state["assignment_df_backup"]
-                wbox("Tabla de asignación restaurada del respaldo automático.")
-            else:
-                ensure_assignment_df(rois)
+        # Asegurar que el buffer no esté vacío
+        if st.session_state.get("assignment_editor_data") is None:
+            ensure_assignment_df(rois)
 
         slbl("Paso 3 — Asignar tipos y concentraciones")
         ibox("Los datos se guardan automáticamente y no se perderán al cambiar de pestaña.")
+        
+        # Editor con buffer estable
         edited = st.data_editor(
-            st.session_state["assignment_df"],
+            st.session_state["assignment_editor_data"],
             column_config={
                 "Tipo":    st.column_config.SelectboxColumn("Tipo",   options=TIPOS,   required=True),
                 "Unidad":  st.column_config.SelectboxColumn("Unidad", options=UNIDADES,required=True),
@@ -1260,8 +1225,12 @@ if pagina=="Análisis":
             use_container_width=True,
             key="asgn_editor"
         )
-        st.session_state["assignment_df"] = edited.copy()
-        st.session_state["assignment_df_backup"] = edited.copy()
+        
+        # Actualizar solo si hubo cambios reales
+        if not edited.equals(st.session_state["assignment_editor_data"]):
+            st.session_state["assignment_editor_data"] = edited.copy()
+            st.session_state["assignment_df"] = edited.copy()
+            st.session_state["assignment_df_backup"] = edited.copy()
 
         blank_r = edited[edited["Tipo"]=="Blanco"]
         blank = blank_r["ROI"].iloc[0] if not blank_r.empty else None
@@ -1289,7 +1258,7 @@ if pagina=="Análisis":
                 st.plotly_chart(plot_plate(edited, tri_grp), use_container_width=True, key="plate_grid_exp")
         footer()
 
-    # ── TAB 3: CALIBRACIÓN (absorbancia por complemento) ────────────────────
+    # ── TAB 3: CALIBRACIÓN (con absorbancia por complemento) ────────────────
     with tab_cal:
         rois=st.session_state.get("rois",[]); img=st.session_state.get("image")
         adf=st.session_state.get("assignment_df")
@@ -1338,7 +1307,6 @@ if pagina=="Análisis":
                     adf_avg = adf
                     st.session_state["homogeneity_df"] = None
 
-                # Usar la nueva función de absorbancia por complemento
                 df_abs = calc_absorbance_complement(df_avg, blank)
                 df_merged = df_abs.merge(
                     adf_avg[["ROI","Tipo","Nombre","Concentracion","Unidad","Analito","Factor_dil"]],
@@ -1410,7 +1378,7 @@ if pagina=="Análisis":
                                           cal_ch.get("LOD",np.nan), cal_ch.get("LOQ",np.nan))
                         st.plotly_chart(fig_ch, use_container_width=True)
 
-        # Cuantificación de muestras
+        # Cuantificación
         st.markdown(f"<hr style='border-color:{BORDER};margin:20px 0;'>",unsafe_allow_html=True)
         slbl("Cuantificación de muestras")
         meth=st.radio("Método",["Calibración externa","Adición de estándar"],horizontal=True)
