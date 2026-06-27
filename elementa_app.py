@@ -1,5 +1,5 @@
 """
-Elementa — sistema analítico colorimétrico digital
+Elementa — Sistema analítico colorimétrico digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
 Software científico para colorimetría digital basada en imágenes RGB.
@@ -401,7 +401,6 @@ def calc_absorbance_complement(df, blank_roi, channels=None):
     if channels is None:
         channels = ["R_norm","G_norm","B_norm"]
     df = df.copy()
-    # Complementos
     for ch in channels:
         comp_col = f"comp_{ch}"
         df[comp_col] = df[ch].apply(lambda v: max(0.001, 100.0 - v) if pd.notna(v) else np.nan)
@@ -924,7 +923,7 @@ def sanitize_filename(name):
     return name
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SESSION STATE (CON BUFFER ESTABLE)
+#  SESSION STATE (SIN LÓGICA DE RECONSTRUCCIÓN EN PROCESAMIENTO)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def init():
@@ -940,40 +939,11 @@ def init():
               assignment_df_backup=None,rois_backup=None,
               homogeneity_df=None,
               original_image=None,
-              last_roi_labels=None,
-              assignment_editor_data=None)  # buffer estable
+              assignment_editor_data=None)
     for k,v in defs.items():
         if k not in st.session_state: st.session_state[k]=v
 
 init()
-
-def ensure_assignment_df(rois):
-    """Asegura que assignment_df tenga exactamente las ROIs actuales,
-       conservando los datos ya ingresados."""
-    current_labels = [r["label"] for r in rois]
-    if "assignment_df" not in st.session_state or st.session_state["assignment_df"] is None:
-        df = pd.DataFrame([{"ROI":label,"Tipo":"Sin asignar","Nombre":"",
-                            "Concentracion":0.0,"Unidad":"mg/L",
-                            "Factor_dil":1.0,"Analito":"Cr(VI)","Observaciones":""}
-                           for label in current_labels])
-        st.session_state["assignment_df"] = df
-        st.session_state["assignment_editor_data"] = df.copy()
-        return df
-
-    df = st.session_state["assignment_df"]
-    st.session_state["assignment_df_backup"] = df.copy()
-
-    for label in current_labels:
-        if label not in df["ROI"].values:
-            new_row = pd.DataFrame([{"ROI":label,"Tipo":"Sin asignar","Nombre":"",
-                                     "Concentracion":0.0,"Unidad":"mg/L",
-                                     "Factor_dil":1.0,"Analito":"Cr(VI)","Observaciones":""}])
-            df = pd.concat([df, new_row], ignore_index=True)
-    df = df[df["ROI"].isin(current_labels)]
-    df = df.set_index("ROI").reindex(current_labels).reset_index()
-    st.session_state["assignment_df"] = df
-    st.session_state["assignment_editor_data"] = df.copy()
-    return df
 
 # ── Helpers UI ─────────────────────────────────────────────────────────────────
 def mc(label,value,interpret=None,explain=None,col=None):
@@ -1029,6 +999,7 @@ if pagina=="Análisis":
                     st.session_state["original_image"]=loaded.copy()
                     st.session_state["image"]=loaded.copy()
                     st.session_state["rois"]=[]
+                    st.session_state["assignment_editor_data"] = None
                     st.session_state["selected_channel"]="G_norm"
         with c2:
             cam=st.camera_input("Capturar con cámara",label_visibility="collapsed")
@@ -1038,20 +1009,17 @@ if pagina=="Análisis":
                     st.session_state["original_image"]=loaded.copy()
                     st.session_state["image"]=loaded.copy()
                     st.session_state["rois"]=[]
+                    st.session_state["assignment_editor_data"] = None
                     st.session_state["selected_channel"]="G_norm"
 
         if st.session_state["original_image"] is None:
             ibox("Cargue o capture una imagen para comenzar.")
             footer(); st.stop()
 
-        # Rotación en tiempo real
+        # Rotación
         st.markdown("---")
         slbl("Rotación de imagen")
-        rotation_angle = st.selectbox(
-            "Rotación de imagen",
-            [0, 90, -90, 180, -180],
-            key="rotation_angle"
-        )
+        rotation_angle = st.selectbox("Rotación de imagen", [0, 90, -90, 180, -180], key="rotation_angle")
 
         def rotate_image(img, angle):
             if angle == 0: return img
@@ -1062,9 +1030,8 @@ if pagina=="Análisis":
         original = st.session_state["original_image"]
         rotated = rotate_image(original, rotation_angle)
         st.session_state["image"] = rotated
-
         if st.session_state.get("rois"):
-            wbox("Al cambiar la rotación, las ROIs definidas previamente pueden no coincidir. Reajuste si es necesario.")
+            wbox("Al cambiar la rotación, reajuste las ROIs si es necesario.")
 
         img = rotated
         H, W = img.shape[:2]
@@ -1089,14 +1056,12 @@ if pagina=="Análisis":
                              ["Viales lineales","Microplaca de 96 pocillos","Tubos de ensayo (3 ROIs circulares)","Personalizado"],
                              key="dev_sel")
             st.session_state["device_type"]=dev
-
             is_plate = (dev == "Microplaca de 96 pocillos")
             is_tubes = (dev == "Tubos de ensayo (3 ROIs circulares)")
             use_circular = is_plate or is_tubes
             if not is_plate and not is_tubes:
                 use_circular = st.toggle("Usar ROIs circulares", value=st.session_state.get("use_circular",False), key="circ_tog")
             st.session_state["use_circular"] = use_circular
-
             if use_circular:
                 global_diam = st.slider("Diámetro global (px)", 6, 80, st.session_state.get("global_diam",18), key="g_diam")
                 st.session_state["global_diam"] = global_diam
@@ -1106,46 +1071,34 @@ if pagina=="Análisis":
             freeze=st.toggle("Bloquear ROIs", value=st.session_state["freeze_rois"], key="frz")
             st.session_state["freeze_rois"]=freeze
 
+            rois = st.session_state.get("rois", [])
             if not freeze:
                 if dev=="Viales lineales":
-                    n=st.number_input("N de viales",2,24,6,1,key="vn")
-                    x0=st.slider("X inicial",0,W-1,int(W*.05),key="vx0")
-                    y0=st.slider("Y inicial",0,H-1,int(H*.25),key="vy0")
-                    rw=st.slider("Ancho ROI",5,200,40,key="vrw")
-                    rh=st.slider("Alto ROI",5,300,60,key="vrh")
-                    dx=st.slider("Espaciado X",0,300,int(W*.08),key="vdx")
-                    dy=st.slider("Espaciado Y",0,300,0,key="vdy")
+                    n=st.number_input("N de viales",2,24,6,1,key="vn"); x0=st.slider("X inicial",0,W-1,int(W*.05),key="vx0"); y0=st.slider("Y inicial",0,H-1,int(H*.25),key="vy0"); rw=st.slider("Ancho ROI",5,200,40,key="vrw"); rh=st.slider("Alto ROI",5,300,60,key="vrh"); dx=st.slider("Espaciado X",0,300,int(W*.08),key="vdx"); dy=st.slider("Espaciado Y",0,300,0,key="vdy")
                     rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
                 elif is_plate:
-                    diam = st.session_state.get("global_diam", 60)
-                    n_rows=st.number_input("Filas",1,8,8,1,key="prows")
-                    n_cols=st.number_input("Columnas",1,12,12,1,key="pcols")
-                    x0=st.slider("X inicial",0,W-1,318,key="px0")
-                    y0=st.slider("Y inicial",0,H-1,228,key="py0")
-                    dx=st.slider("Espaciado X",10,300,170,key="pdx")
-                    dy=st.slider("Espaciado Y",10,300,170,key="pdy")
+                    diam = st.session_state.get("global_diam", 60); n_rows=st.number_input("Filas",1,8,8,1,key="prows"); n_cols=st.number_input("Columnas",1,12,12,1,key="pcols"); x0=st.slider("X inicial",0,W-1,318,key="px0"); y0=st.slider("Y inicial",0,H-1,228,key="py0"); dx=st.slider("Espaciado X",10,300,170,key="pdx"); dy=st.slider("Espaciado Y",10,300,170,key="pdy")
                     rois=gen_rois_plate(x0,y0,diam,diam,dx,dy,int(n_rows),int(n_cols))
                 elif is_tubes:
-                    radius = st.slider("Radio del círculo (px)", 5, 50, 15, key="t_radius")
-                    h = st.slider("Altura del tubo (px)", 50, 500, 200, key="t_h")
-                    ntubes = st.number_input("Número de tubos", 1, 12, 6, 1, key="t_ntubes")
-                    x0 = st.slider("X inicial (centro primer tubo)", 0, W-1, 100, key="t_x0")
-                    y0 = st.slider("Y inicial (borde superior)", 0, H-1, 100, key="t_y0")
-                    dx = st.slider("Espaciado X entre tubos", 20, 300, 120, key="t_dx")
+                    radius = st.slider("Radio del círculo (px)", 5, 50, 15, key="t_radius"); h = st.slider("Altura del tubo (px)", 50, 500, 200, key="t_h"); ntubes = st.number_input("Número de tubos", 1, 12, 6, 1, key="t_ntubes"); x0 = st.slider("X inicial (centro primer tubo)", 0, W-1, 100, key="t_x0"); y0 = st.slider("Y inicial (borde superior)", 0, H-1, 100, key="t_y0"); dx = st.slider("Espaciado X entre tubos", 20, 300, 120, key="t_dx")
                     rois=gen_rois_tubes(x0,y0,radius,h,int(ntubes),dx)
                 else:
-                    n=st.number_input("N de ROIs",2,50,6,1,key="cn")
-                    x0=st.slider("X inicial",0,W-1,int(W*.05),key="cx0")
-                    y0=st.slider("Y inicial",0,H-1,int(H*.1), key="cy0")
-                    rw=st.slider("Ancho ROI",5,200,30,key="crw")
-                    rh=st.slider("Alto ROI",5,200,30,key="crh")
-                    dx=st.slider("Espaciado X",0,300,int(W*.08),key="cdx")
-                    dy=st.slider("Espaciado Y",0,300,int(H*.08),key="cdy")
+                    n=st.number_input("N de ROIs",2,50,6,1,key="cn"); x0=st.slider("X inicial",0,W-1,int(W*.05),key="cx0"); y0=st.slider("Y inicial",0,H-1,int(H*.1), key="cy0"); rw=st.slider("Ancho ROI",5,200,30,key="crw"); rh=st.slider("Alto ROI",5,200,30,key="crh"); dx=st.slider("Espaciado X",0,300,int(W*.08),key="cdx"); dy=st.slider("Espaciado Y",0,300,int(H*.08),key="cdy")
                     rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
+
                 st.session_state["rois"]=rois
                 st.session_state["rois_backup"]=[r.copy() for r in rois]
+                # Inicializar el buffer del editor solo si es nuevo o cambiaron las ROIs
+                current_labels = [r["label"] for r in rois]
+                if st.session_state.get("assignment_editor_data") is None or \
+                   list(st.session_state["assignment_editor_data"]["ROI"]) != current_labels:
+                    df = pd.DataFrame([{"ROI":label,"Tipo":"Sin asignar","Nombre":"",
+                                        "Concentracion":0.0,"Unidad":"mg/L",
+                                        "Factor_dil":1.0,"Analito":"Cr(VI)","Observaciones":""}
+                                       for label in current_labels])
+                    st.session_state["assignment_editor_data"] = df
+                    st.session_state["assignment_df"] = df.copy()
             else:
-                rois = st.session_state.get("rois", [])
                 if not rois and st.session_state.get("rois_backup"):
                     rois = st.session_state["rois_backup"]
                     st.session_state["rois"] = rois
@@ -1174,12 +1127,12 @@ if pagina=="Análisis":
             else:
                 st.image(img, caption="Imagen original", use_container_width=True)
 
-        if not rois:
+        if not st.session_state.get("rois"):
             ibox("Configure las ROIs para continuar.")
             footer(); st.stop()
         footer()
 
-    # ── TAB 2: PROCESAMIENTO (con buffer estable) ───────────────────────────
+    # ── TAB 2: PROCESAMIENTO (editor estable) ───────────────────────────────
     with tab_proc:
         rois = st.session_state.get("rois", [])
         if not rois and st.session_state.get("rois_backup"):
@@ -1191,27 +1144,19 @@ if pagina=="Análisis":
             wbox("Defina las ROIs en Captura primero.")
             footer(); st.stop()
 
-        current_labels = [r["label"] for r in rois]
-        if "last_roi_labels" not in st.session_state:
-            st.session_state["last_roi_labels"] = current_labels
-
-        # Si las etiquetas cambiaron, reconstruir la tabla (conservando datos previos)
-        if current_labels != st.session_state["last_roi_labels"]:
-            ensure_assignment_df(rois)
-            st.session_state["last_roi_labels"] = current_labels
-        else:
-            # Si el buffer del editor está vacío, restaurar desde assignment_df
-            if st.session_state.get("assignment_editor_data") is None:
-                st.session_state["assignment_editor_data"] = st.session_state["assignment_df"].copy()
-
-        # Asegurar que el buffer no esté vacío
+        # Asegurar que el buffer del editor exista (solo si no se creó antes)
         if st.session_state.get("assignment_editor_data") is None:
-            ensure_assignment_df(rois)
+            current_labels = [r["label"] for r in rois]
+            df = pd.DataFrame([{"ROI":label,"Tipo":"Sin asignar","Nombre":"",
+                                "Concentracion":0.0,"Unidad":"mg/L",
+                                "Factor_dil":1.0,"Analito":"Cr(VI)","Observaciones":""}
+                               for label in current_labels])
+            st.session_state["assignment_editor_data"] = df
+            st.session_state["assignment_df"] = df.copy()
 
         slbl("Paso 3 — Asignar tipos y concentraciones")
-        ibox("Los datos se guardan automáticamente y no se perderán al cambiar de pestaña.")
-        
-        # Editor con buffer estable
+        ibox("Los datos se guardan automáticamente y nunca se pierden.")
+
         edited = st.data_editor(
             st.session_state["assignment_editor_data"],
             column_config={
@@ -1225,12 +1170,10 @@ if pagina=="Análisis":
             use_container_width=True,
             key="asgn_editor"
         )
-        
-        # Actualizar solo si hubo cambios reales
-        if not edited.equals(st.session_state["assignment_editor_data"]):
-            st.session_state["assignment_editor_data"] = edited.copy()
-            st.session_state["assignment_df"] = edited.copy()
-            st.session_state["assignment_df_backup"] = edited.copy()
+
+        st.session_state["assignment_editor_data"] = edited
+        st.session_state["assignment_df"] = edited.copy()
+        st.session_state["assignment_df_backup"] = edited.copy()
 
         blank_r = edited[edited["Tipo"]=="Blanco"]
         blank = blank_r["ROI"].iloc[0] if not blank_r.empty else None
@@ -1258,7 +1201,7 @@ if pagina=="Análisis":
                 st.plotly_chart(plot_plate(edited, tri_grp), use_container_width=True, key="plate_grid_exp")
         footer()
 
-    # ── TAB 3: CALIBRACIÓN (con absorbancia por complemento) ────────────────
+    # ── TAB 3: CALIBRACIÓN (absorbancia por complemento) ────────────────────
     with tab_cal:
         rois=st.session_state.get("rois",[]); img=st.session_state.get("image")
         adf=st.session_state.get("assignment_df")
@@ -1424,7 +1367,7 @@ if pagina=="Análisis":
                     st.plotly_chart(sf,use_container_width=True)
         footer()
 
-    # ── TAB 4: REPORTE ──────────────────────────────────────────────────────
+    # ── TAB 4: REPORTE (sin cambios) ────────────────────────────────────────
     with tab_rep:
         slbl("Evaluación normativa")
         wbox("Verificar siempre los límites en la versión oficial vigente (DOF). Valores mostrados son referenciales.")
