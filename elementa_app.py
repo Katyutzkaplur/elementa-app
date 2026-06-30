@@ -1,5 +1,5 @@
 """
-Elementa v1 — Sistema analítico colorimétrico digital
+Elementa v1 — Sistema Analítico Colorimétrico Digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
 Software científico para colorimetría digital basada en imágenes RGB.
@@ -32,19 +32,19 @@ def fmt_mx(dt=None):
     return (dt or now_mx()).strftime("%Y-%m-%d  %H:%M:%S  (GMT%z)")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PALETA Y CONFIGURACIÓN (INTERFAZ CLARA)
+#  PALETA Y CONFIGURACIÓN (INTERFAZ CLARA CON AZUL AMIGABLE)
 # ══════════════════════════════════════════════════════════════════════════════
 
-BG       = "#F8FAFC"
+BG       = "#F1F5F9"
 PRIMARY  = "#FFFFFF"
 CARD     = "#FFFFFF"
 CARD2    = "#E2E8F0"
-ACCENT   = "#2563EB"
+ACCENT   = "#3B82F6"
 SUCCESS  = "#16A34A"
 DANGER   = "#DC2626"
 WARNING  = "#F59E0B"
-TEXT     = "#111827"
-MUTED    = "#374151"
+TEXT     = "#0F172A"
+MUTED    = "#475569"
 BORDER   = "#CBD5E1"
 PLOT_BG  = "#FFFFFF"
 
@@ -111,7 +111,18 @@ PROTOCOL_LIBRARY = {
             lambda_ref=540, color="Rojo-violeta", canal="G_norm",
             obs="Interferencias: Fe(III), Mo, V, Cu. Preparar patrón en agua ultrapura.",
             ref="NMX-AA-044-SCFI-2014 | APHA Method 3500-Cr B"),
-        # ... resto de metales sin cambios
+        "Pb — Ditizona": dict(
+            analito="Pb", unidad="µg/L",
+            principio="El Pb(II) forma un complejo rojo-escarlata con ditizona en solvente orgánico a pH controlado.",
+            lambda_ref=510, color="Rojo-escarlata", canal="G_norm",
+            obs="Controlar pH con acetato de amonio. Interferencias: Sn, Bi, Tl.",
+            ref="NOM-117-SSA1-1994 | APHA Method 3500-Pb"),
+        "Cd — Ditizona": dict(
+            analito="Cd", unidad="µg/L",
+            principio="El Cd(II) forma un complejo amarillo-anaranjado con ditizona a pH 8-9.",
+            lambda_ref=518, color="Amarillo-anaranjado", canal="B_norm",
+            obs="Enmascarar Cu y Zn con KCN. pH con buffer de tartrato.",
+            ref="APHA Method 3500-Cd"),
     },
     "Antioxidantes y bioactivos": {
         "Fenólicos totales — Folin-Ciocalteu": dict(
@@ -174,7 +185,7 @@ def check_image_quality(img: np.ndarray) -> dict:
     }
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  STREAMLIT CONFIG + CSS (INTERFAZ CLARA)
+#  STREAMLIT CONFIG + CSS (INTERFAZ CLARA CON TEXTO SIEMPRE VISIBLE)
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(page_title="Elementa v1", page_icon=None, layout="wide",
@@ -203,11 +214,42 @@ h3{{font-size:.9rem;font-weight:600;color:{MUTED};text-transform:uppercase;lette
 .badge-fail{{background:#FEE2E2;color:#991B1B;padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:700;}}
 .badge-none{{background:{CARD2};color:{MUTED};padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:600;}}
 .footer{{text-align:center;color:{MUTED};font-size:.7rem;padding:28px 0 10px;margin-top:48px;border-top:1px solid {BORDER};}}
-.stButton>button{{background:{ACCENT};color:white;border:none;border-radius:6px;padding:9px 22px;font-weight:600;font-size:.84rem;letter-spacing:.02em;font-family:'Inter',sans-serif;transition:background .2s;}}
+.stButton>button{{background:{ACCENT};color:white !important;border:none;border-radius:6px;padding:9px 22px;font-weight:600;font-size:.84rem;letter-spacing:.02em;font-family:'Inter',sans-serif;transition:background .2s;}}
 .stButton>button:hover{{background:#1D4ED8;}}
 .stTabs [data-baseweb="tab-list"]{{gap:2px;border-bottom:1px solid {BORDER};}}
 .stTabs [data-baseweb="tab"]{{background:transparent;color:{MUTED};font-weight:500;font-size:.85rem;padding:10px 20px;border-radius:6px 6px 0 0;}}
-.stTabs [aria-selected="true"]{{background:{CARD} !important;color:{TEXT} !important;border-bottom:2px solid {ACCENT} !important;}}
+.stTabs [aria-selected="true"]{{background:{CARD} !important;color:{ACCENT} !important;border-bottom:2px solid {ACCENT} !important;}}
+
+/* ═══════ REGLAS ADICIONALES PARA LEGIBILIDAD ═══════ */
+/* Forzar texto oscuro en componentes que no heredan */
+[data-testid="stDataEditor"] div, 
+[data-testid="stDataEditor"] span,
+[data-testid="stDataEditor"] input,
+[data-testid="stDataEditor"] select,
+.stSelectbox div, .stSelectbox span, .stSelectbox input,
+.stSlider div, .stSlider span, .stSlider input,
+[data-baseweb="select"] div, [data-baseweb="select"] span,
+[data-baseweb="input"] div, [data-baseweb="input"] input,
+.stMarkdown, .stMarkdown p, .stMarkdown span {{
+    color: {TEXT} !important;
+}}
+/* Asegurar que el sidebar tenga texto oscuro */
+[data-testid="stSidebar"] * {{
+    color: {TEXT} !important;
+}}
+/* Mejorar visibilidad de los botones */
+.stButton>button {{
+    background: {ACCENT};
+    color: white !important;
+    border-radius: 6px;
+    font-weight: 600;
+}}
+/* Encabezados de tabs */
+.stTabs [aria-selected="true"] {{
+    color: {ACCENT} !important;
+    border-bottom-color: {ACCENT} !important;
+}}
+/* ════════════════════════════════════════════════════ */
 </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -407,8 +449,6 @@ def normalize_ida_params(ida_list):
     if not ida_list:
         return ida_list
     df = pd.DataFrame(ida_list)
-    # Mayor es mejor: r2, slope
-    # Menor es mejor: sy_x, lod, loq, cv
     for col in ["r2", "slope"]:
         if col in df.columns:
             mn, mx = df[col].min(), df[col].max()
@@ -420,11 +460,9 @@ def normalize_ida_params(ida_list):
         if col in df.columns:
             mn, mx = df[col].min(), df[col].max()
             if mx > mn:
-                # invertir: menor es mejor → más puntuación
                 df[f"{col}_norm"] = (1 - (df[col] - mn) / (mx - mn)) * 100
             else:
                 df[f"{col}_norm"] = 100
-    # Ponderar y sumar
     w = {"r2":0.30, "sy_x":0.25, "slope":0.15, "lod":0.10, "loq":0.10, "cv":0.10}
     df["IDA"] = 0
     for k, weight in w.items():
@@ -895,11 +933,9 @@ if pagina=="Análisis":
             with st.spinner("Procesando todas las señales digitales..."):
                 use_circ = st.session_state.get("use_circular",False)
                 df_signals = extract_all_signals(img, rois, circular=use_circ)
-                # Añadir distancia euclidiana
                 blank_row = df_signals[df_signals["ROI"]==blank] if blank else None
                 df_signals = add_euclidean_distance(df_signals, blank_row)
 
-                # Lista de todas las señales a evaluar
                 signal_columns = [
                     "R","G","B",
                     "R_norm","G_norm","B_norm",
@@ -910,7 +946,6 @@ if pagina=="Análisis":
                 ]
                 df_signals = compute_absorbances(df_signals, blank, signal_columns)
 
-                # Merge con assignment
                 df_merged = df_signals.merge(
                     adf[["ROI","Tipo","Nombre","Concentracion","Unidad","Analito","Factor_dil"]],
                     on="ROI",how="left")
@@ -925,14 +960,12 @@ if pagina=="Análisis":
                         ac_inv = f"A_inv_{col}"
                         if ac not in df_merged.columns:
                             continue
-                        # Evaluar absorbancia clásica
                         sigs = std[ac].dropna().values
                         if len(sigs)>=2:
                             cal = fit_line(concs, sigs)
                             if cal:
                                 sy_x = calc_sy_x(cal)
                                 lod, loq = calc_lod_loq(cal, sy_x)
-                                # Calcular IDA base
                                 ida_raw = compute_ida(cal["r2"], sy_x, abs(cal["m"]), lod, loq)
                                 ida_raw["signal"] = col
                                 ida_raw["type"] = "Absorbancia clásica"
@@ -941,7 +974,6 @@ if pagina=="Análisis":
                                 ida_raw["inverted"] = False
                                 ida_list.append(ida_raw)
                                 all_signals[col] = {"cal":cal, "sigs":sigs, "lod":lod, "loq":loq, "sy_x":sy_x, "inverted":False}
-                        # Evaluar absorbancia invertida si la pendiente es negativa
                         if cal and cal["m"] < 0 and ac_inv in df_merged.columns:
                             sigs_inv = std[ac_inv].dropna().values
                             if len(sigs_inv)>=2:
@@ -958,10 +990,8 @@ if pagina=="Análisis":
                                     ida_list.append(ida_inv)
                                     all_signals[col+"_inv"] = {"cal":cal_inv, "sigs":sigs_inv, "lod":lod_inv, "loq":loq_inv, "sy_x":sy_x_inv, "inverted":True}
 
-                    # Normalizar IDA y seleccionar el mejor
                     if ida_list:
                         ida_normalized = normalize_ida_params(ida_list)
-                        # Seleccionar el de mayor IDA
                         best = max(ida_normalized, key=lambda x: x["IDA"])
                         best_signal = best["signal"] + ("_inv" if best["inverted"] else "")
                         best_info = all_signals[best_signal]
@@ -981,16 +1011,13 @@ if pagina=="Análisis":
                         st.session_state["cal_ida"] = best["IDA"]
                         st.success(f"Barrido completado. Mejor señal: **{best_signal}** con IDA = {best['IDA']:.1f}")
 
-        # Mostrar tabla comparativa y gráficos
         ida_df = st.session_state.get("ida_df")
         if ida_df is not None:
             st.markdown("### Tabla comparativa de señales digitales")
             df_show = pd.DataFrame(ida_df)
-            # Seleccionar columnas relevantes
             display_cols = ["signal","type","m_orig","m_final","r2","sy_x","lod","loq","IDA","inverted"]
             st.dataframe(df_show[display_cols].round(4), use_container_width=True)
 
-            # Permitir selección manual
             all_signals = st.session_state.get("all_signals", {})
             signal_options = list(all_signals.keys())
             sel_manual = st.selectbox("Seleccionar manualmente otra señal", options=signal_options,
@@ -1005,7 +1032,6 @@ if pagina=="Análisis":
                 st.session_state["cal_sy_x"] = info["sy_x"]
                 st.session_state["cal_inverted"] = info["inverted"]
 
-            # Graficar señal seleccionada
             cal = st.session_state.get("cal_result")
             if cal:
                 concs = st.session_state["cal_concs"]
@@ -1017,13 +1043,11 @@ if pagina=="Análisis":
                 ida_val = st.session_state.get("cal_ida", None)
                 fig = plot_cal(concs, sigs, cal, ch, "Fenólicos totales", unit, lod, loq, ida_val)
                 st.plotly_chart(fig, use_container_width=True)
-                # Mostrar interpretación de pendiente
                 slope_msg, slope_col = interpret_slope(cal["m"])
                 st.markdown(f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};padding:10px;margin:8px 0;">{slope_msg}</div>', unsafe_allow_html=True)
                 if st.session_state.get("cal_inverted"):
                     st.info("Se utilizó la absorbancia invertida para obtener una pendiente positiva.")
 
-        # Cuantificación de muestras
         st.markdown(f"<hr style='border-color:{BORDER};margin:20px 0;'>",unsafe_allow_html=True)
         slbl("Cuantificación de muestras")
         if st.button("Calcular concentraciones",key="btn_q"):
@@ -1048,11 +1072,8 @@ if pagina=="Análisis":
                                 "Unidad":str(row.get("Unidad","mg/L")),"Analito":str(row.get("Analito",""))})
                 df_res=pd.DataFrame(res); st.session_state["df_results"]=df_res
                 st.dataframe(df_res,use_container_width=True,hide_index=True)
-
-                # Botón de exportación de datos crudos
                 csv = df_res.to_csv(index=False).encode('utf-8')
                 st.download_button("Descargar resultados CSV", csv, "elementa_resultados.csv", "text/csv")
-                # Exportar datos crudos completos
                 full_csv = st.session_state.get("df_signals")
                 if full_csv is not None:
                     full_csv = full_csv.merge(adf[["ROI","Tipo","Concentracion","Unidad"]], on="ROI", how="left")
@@ -1080,7 +1101,6 @@ if pagina=="Análisis":
             cal = st.session_state.get("cal_result")
             ida_val = st.session_state.get("cal_ida")
             inverted = st.session_state.get("cal_inverted", False)
-            # Generar imagen de calibración para PDF
             if cal:
                 concs = st.session_state["cal_concs"]
                 sigs = st.session_state["cal_sigs"]
