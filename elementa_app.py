@@ -509,6 +509,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
     from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame,
                                      Paragraph, Spacer, Table, TableStyle,
                                      Image as RLImage, HRFlowable, KeepTogether)
+    import plotly.io as pio
     C={"bg":HexColor("#020617"),"card":HexColor("#1E293B"),"card2":HexColor("#263546"),
        "acc":HexColor("#2563EB"),"grn":HexColor("#059669"),"red":HexColor("#DC2626"),
        "txt":HexColor("#E2E8F0"),"mut":HexColor("#94A3B8"),"brd":HexColor("#334155"),
@@ -579,6 +580,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
             for col in available:
                 val = row[col]
                 if col == "r2": formatted_row.append(fmt_val(val, 4))
+                elif col == "sy_x": formatted_row.append(fmt_val(val, 4))  # Sy/x con 4 decimales
                 elif col == "inverted": formatted_row.append("Sí" if val else "No")
                 elif col in ("type","signal"): formatted_row.append(str(val))
                 else: formatted_row.append(fmt_val(val, 2))
@@ -599,7 +601,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
             ["Parámetro","Valor"],["Analito",analyte],["Método",method],["λ referencia","760 nm"],
             ["Señal seleccionada",selected_signal],["Pendiente (m)",fmt_val(cal["m"],2)],
             ["Intercepto (b)",fmt_val(cal["b"],2)],["R²",fmt_val(cal["r2"],4)],
-            ["Sy/x",fmt_val(cal.get("sy_x","N/D"),2)],
+            ["Sy/x",fmt_val(cal.get("sy_x","N/D"),4)],  # Sy/x con 4 decimales
             ["LOD",fmt_val(lod,2) if not math.isnan(lod) else "N/D"],
             ["LOQ",fmt_val(loq,2) if not math.isnan(loq) else "N/D"],
             ["IDA",fmt_val(ida,2) if ida else "N/D"],
@@ -621,10 +623,11 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
     if plate_grid_fig is not None:
         story.append(Paragraph("F) Mapa de placa", h2s))
         try:
-            img_bytes = plate_grid_fig.to_image(format="png", width=800, height=500)
+            # Convertir figura Plotly a PNG usando plotly.io
+            img_bytes = pio.to_image(plate_grid_fig, format="png", width=800, height=500)
             story.append(RLImage(BytesIO(img_bytes), width=5.5*inch, height=3.5*inch, kind="proportional"))
-        except Exception:
-            story.append(note("No se pudo generar la imagen del mapa de placa."))
+        except Exception as e:
+            story.append(note(f"No se pudo generar la imagen del mapa de placa. Error: {str(e)}"))
         story.append(Spacer(1,10))
     story.append(HRFlowable(width="100%",thickness=0.5,color=C["brd"]))
     story.append(Spacer(1,5))
