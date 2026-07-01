@@ -714,7 +714,7 @@ if pagina=="Análisis":
                 elif is_plate:
                     diam=st.session_state.get("global_diam",60); n_rows=st.number_input("Filas",1,8,8,1,key="prows"); n_cols=st.number_input("Columnas",1,12,12,1,key="pcols")
                     auto_center = st.checkbox("Centrar grid automáticamente en la imagen", value=st.session_state.get("plate_auto_center", True), key="plate_auto_center")
-                    st.session_state["plate_auto_center"] = auto_center
+                   st.session_state.plate_auto_center = auto_center
                     if auto_center:
                         dx_val, dy_val = 141, 143
                         grid_w = dx_val * (int(n_cols) - 1) + diam
