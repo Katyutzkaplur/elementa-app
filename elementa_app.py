@@ -32,37 +32,39 @@ def fmt_mx(dt=None):
     return (dt or now_mx()).strftime("%Y-%m-%d  %H:%M:%S  (GMT%z)")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PALETA SUAVE Y AMIGABLE (ELEMENTA SOFT)
+#  PALETA OSCURA ORIGINAL (CON GRID NEGRO)
 # ══════════════════════════════════════════════════════════════════════════════
 
-BG       = "#F0F4F8"
-PRIMARY  = "#FFFFFF"
-CARD     = "#FFFFFF"
-CARD2    = "#E2E8F0"
-ACCENT   = "#4F46E5"
+BG       = "#020617"
+PRIMARY  = "#0F172A"
+CARD     = "#1E293B"
+CARD2    = "#263546"
+ACCENT   = "#2563EB"
 SUCCESS  = "#059669"
 DANGER   = "#DC2626"
-WARNING  = "#D97706"
-TEXT     = "#1E293B"
-MUTED    = "#475569"
-BORDER   = "#CBD5E1"
-PLOT_BG  = "#FFFFFF"
+WARNING  = "#F59E0B"
+TEXT     = "#E2E8F0"
+MUTED    = "#94A3B8"
+BORDER   = "#334155"
+PLOT_BG  = "#0B1120"
 
+# Los colores para los tipos de muestra se mantienen para la leyenda,
+# pero el grid (draw_rois) usará siempre negro (#000000) para máxima visibilidad.
 TIPO_COLORS = {
-    "Blanco":           "#38BDF8",
+    "Blanco":           "#0EA5E9",
     "Estándar":         "#059669",
-    "Muestra":          "#4F46E5",
+    "Muestra":          "#2563EB",
     "Control":          "#7C3AED",
     "Adición estándar": "#DB2777",
-    "Sin asignar":      "#94A3B8",
+    "Sin asignar":      "#1E293B",
 }
 TIPO_BGR = {
-    "Blanco":           (56, 189, 248),
-    "Estándar":         (5, 150, 105),
-    "Muestra":          (79, 70, 229),
+    "Blanco":           (8,  165, 233),
+    "Estándar":         (5,  150, 105),
+    "Muestra":          (37,  99, 235),
     "Control":          (124, 58, 237),
     "Adición estándar": (219, 39, 119),
-    "Sin asignar":      (148, 163, 184),
+    "Sin asignar":      (30,  41,  59),
 }
 TIPO_SHORT = {
     "Blanco":"BLANK","Estándar":"STD","Muestra":"SMP",
@@ -185,7 +187,7 @@ def check_image_quality(img: np.ndarray) -> dict:
     }
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  STREAMLIT CONFIG + CSS (CON NUEVA PALETA)
+#  STREAMLIT CONFIG + CSS (MODO OSCURO CON GRID NEGRO)
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(page_title="Elementa v1", page_icon=None, layout="wide",
@@ -206,35 +208,19 @@ h3{{font-size:.9rem;font-weight:600;color:{MUTED};text-transform:uppercase;lette
 .mc .val{{font-size:1.4rem;font-weight:700;color:{TEXT};margin:0;font-family:'JetBrains Mono',monospace;}}
 .mc .itp{{font-size:.72rem;margin:3px 0 0 0;font-style:italic;}}
 .mc .exp{{font-size:.7rem;color:{MUTED};margin:6px 0 0 0;line-height:1.45;border-top:1px solid {BORDER};padding-top:5px;}}
-.info-box{{background:{PRIMARY};border-left:3px solid {ACCENT};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:{TEXT};margin:8px 0;line-height:1.5;}}
-.warn-box{{background:#FEF3C7;border-left:3px solid {WARNING};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#92400E;margin:8px 0;line-height:1.5;}}
-.ok-box{{background:#DCFCE7;border-left:3px solid {SUCCESS};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#14532D;margin:8px 0;line-height:1.5;}}
+.info-box{{background:{PRIMARY};border-left:3px solid {ACCENT};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#93C5FD;margin:8px 0;line-height:1.5;}}
+.warn-box{{background:{PRIMARY};border-left:3px solid {DANGER};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#FCA5A5;margin:8px 0;line-height:1.5;}}
+.ok-box{{background:{PRIMARY};border-left:3px solid {SUCCESS};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#6EE7B7;margin:8px 0;line-height:1.5;}}
 .slbl{{font-size:.64rem;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:{ACCENT};margin:0 0 4px 0;}}
-.badge-pass{{background:#DCFCE7;color:#166534;padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:700;}}
-.badge-fail{{background:#FEE2E2;color:#991B1B;padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:700;}}
-.badge-none{{background:{CARD2};color:{MUTED};padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:600;}}
+.badge-pass{{background:#052e16;color:#4ADE80;padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:700;border:1px solid #166534;}}
+.badge-fail{{background:#450a0a;color:#F87171;padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:700;border:1px solid #991b1b;}}
+.badge-none{{background:{CARD};color:{MUTED};padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:600;border:1px solid {BORDER};}}
 .footer{{text-align:center;color:{MUTED};font-size:.7rem;padding:28px 0 10px;margin-top:48px;border-top:1px solid {BORDER};}}
-.stButton>button{{background:{ACCENT};color:white !important;border:none;border-radius:6px;padding:9px 22px;font-weight:600;font-size:.84rem;letter-spacing:.02em;font-family:'Inter',sans-serif;transition:background .2s;}}
-.stButton>button:hover{{background:#4338CA;}}
+.stButton>button{{background:{ACCENT};color:#fff;border:none;border-radius:6px;padding:9px 22px;font-weight:600;font-size:.84rem;letter-spacing:.02em;font-family:'Inter',sans-serif;transition:background .2s;}}
+.stButton>button:hover{{background:#1D4ED8;}}
 .stTabs [data-baseweb="tab-list"]{{gap:2px;border-bottom:1px solid {BORDER};}}
 .stTabs [data-baseweb="tab"]{{background:transparent;color:{MUTED};font-weight:500;font-size:.85rem;padding:10px 20px;border-radius:6px 6px 0 0;}}
-.stTabs [aria-selected="true"]{{background:{CARD} !important;color:{ACCENT} !important;border-bottom:2px solid {ACCENT} !important;}}
-
-/* Forzar texto oscuro en componentes que no heredan */
-[data-testid="stDataEditor"] div, 
-[data-testid="stDataEditor"] span,
-[data-testid="stDataEditor"] input,
-[data-testid="stDataEditor"] select,
-.stSelectbox div, .stSelectbox span, .stSelectbox input,
-.stSlider div, .stSlider span, .stSlider input,
-[data-baseweb="select"] div, [data-baseweb="select"] span,
-[data-baseweb="input"] div, [data-baseweb="input"] input,
-.stMarkdown, .stMarkdown p, .stMarkdown span {{
-    color: {TEXT} !important;
-}}
-[data-testid="stSidebar"] * {{
-    color: {TEXT} !important;
-}}
+.stTabs [aria-selected="true"]{{background:{CARD} !important;color:{TEXT} !important;border-bottom:2px solid {ACCENT} !important;}}
 </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -282,11 +268,14 @@ def gen_rois_tubes(x0,y0,radius,h,ntubes,dx):
     return rois
 
 def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
+    """
+    Dibuja ROIs sobre la imagen con borde NEGRO para máxima visibilidad.
+    """
     out = img.copy()
     for roi in rois:
         tipo = (type_map or {}).get(roi["label"], "Sin asignar")
-        rgb  = TIPO_BGR.get(tipo, (148, 163, 184))
-        bgr  = (rgb[2], rgb[1], rgb[0])
+        # Usamos siempre negro (0,0,0) para el borde del grid
+        bgr = (0, 0, 0)
         if "cx" in roi and "cy" in roi and "radius" in roi:
             cx, cy, r = roi["cx"], roi["cy"], roi["radius"]
             cv2.circle(out, (cx, cy), r, bgr, 2)
@@ -457,10 +446,10 @@ def normalize_ida_params(ida_list):
     return df.to_dict(orient="records")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  VISUALIZACIÓN PLOTLY (INTERFAZ CLARA)
+#  VISUALIZACIÓN PLOTLY (MODO OSCURO)
 # ══════════════════════════════════════════════════════════════════════════════
 
-_PLT = dict(template="plotly_white", paper_bgcolor=PLOT_BG, plot_bgcolor=PLOT_BG,
+_PLT = dict(template="plotly_dark", paper_bgcolor=PLOT_BG, plot_bgcolor=PLOT_BG,
             font=dict(family="Inter,sans-serif",color=TEXT,size=11),
             margin=dict(l=52,r=20,t=48,b=48))
 
@@ -469,7 +458,7 @@ def plot_cal(concs, sigs, cal, ch, analyte, unit, lod, loq, ida=None):
     x1=float(concs.max())*1.15; xl=np.linspace(x0,x1,300)
     fig=go.Figure()
     fig.add_trace(go.Scatter(x=concs,y=sigs,mode="markers",
-        marker=dict(color=ACCENT,size=10,line=dict(color='white',width=1.5)),name="Estándares"))
+        marker=dict(color=ACCENT,size=10,line=dict(color=PLOT_BG,width=1.5)),name="Estándares"))
     fig.add_trace(go.Scatter(x=xl,y=cal["m"]*xl+cal["b"],mode="lines",
         line=dict(color=SUCCESS,width=2.2),name="Regresión lineal"))
     if not np.isnan(lod): fig.add_vline(x=lod,line_dash="dot",line_color=DANGER,
@@ -480,8 +469,8 @@ def plot_cal(concs, sigs, cal, ch, analyte, unit, lod, loq, ida=None):
     eq=f"A = {m:.4f}·C {sgn} {abs(b):.4f}   |   R² = {r2:.5f}"
     if ida is not None: eq += f"   |   IDA = {ida:.1f}"
     fig.add_annotation(x=0.03,y=0.97,xref="paper",yref="paper",text=eq,showarrow=False,
-        font=dict(color=TEXT,size=10,family="JetBrains Mono"),
-        bgcolor="rgba(255,255,255,.9)",bordercolor=BORDER,borderwidth=1,borderpad=5)
+        font=dict(color="#4ADE80",size=10,family="JetBrains Mono"),
+        bgcolor="rgba(11,17,32,.85)",bordercolor=SUCCESS,borderwidth=1,borderpad=5)
     fig.update_layout(**_PLT,title=f"Curva de calibración — {analyte} | Señal: {ch}",
         xaxis_title=f"Concentración ({unit})",yaxis_title="Absorbancia digital")
     return fig
@@ -490,14 +479,14 @@ def plot_residuals(concs,cal,ch):
     yfit=cal["m"]*concs+cal["b"]
     fig=go.Figure()
     fig.add_trace(go.Scatter(x=yfit,y=cal["res"],mode="markers",
-        marker=dict(color=ACCENT,size=8,line=dict(color='white',width=1)),name="Residuos"))
+        marker=dict(color=ACCENT,size=8,line=dict(color=PLOT_BG,width=1)),name="Residuos"))
     fig.add_hline(y=0,line_dash="dash",line_color=MUTED,line_width=1)
     fig.update_layout(**_PLT,height=260,title=f"Residuos — Señal: {ch}",
         xaxis_title="Señal predicha",yaxis_title="Residuo (obs - pred)")
     return fig
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  REPORTE PDF (INCLUYE TABLA DE BARRIDO E IDA)
+#  REPORTE PDF (MODO OSCURO)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
@@ -509,10 +498,10 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
     from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame,
                                      Paragraph, Spacer, Table, TableStyle,
                                      Image as RLImage, HRFlowable, KeepTogether)
-    C={"bg":HexColor("#F8FAFC"),"card":HexColor("#FFFFFF"),"card2":HexColor("#E2E8F0"),
-       "acc":HexColor("#4F46E5"),"grn":HexColor("#059669"),"red":HexColor("#DC2626"),
-       "txt":HexColor("#1E293B"),"mut":HexColor("#475569"),"brd":HexColor("#CBD5E1"),
-       "nb":HexColor("#F1F5F9"),"nt":HexColor("#0F172A")}
+    C={"bg":HexColor("#020617"),"card":HexColor("#1E293B"),"card2":HexColor("#263546"),
+       "acc":HexColor("#2563EB"),"grn":HexColor("#059669"),"red":HexColor("#DC2626"),
+       "txt":HexColor("#E2E8F0"),"mut":HexColor("#94A3B8"),"brd":HexColor("#334155"),
+       "nb":HexColor("#E8EDF3"),"nt":HexColor("#0A0A0A")}
     buf=BytesIO()
     def bg(canvas,doc):
         canvas.saveState(); canvas.setFillColor(C["bg"])
@@ -520,16 +509,16 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
     doc=BaseDocTemplate(buf,pagesize=letter,leftMargin=.7*inch,rightMargin=.7*inch,
                         topMargin=.7*inch,bottomMargin=.7*inch)
     fr=Frame(doc.leftMargin,doc.bottomMargin,doc.width,doc.height,id="m")
-    doc.addPageTemplates([PageTemplate(id="light",frames=[fr],onPage=bg)])
+    doc.addPageTemplates([PageTemplate(id="dark",frames=[fr],onPage=bg)])
     S=getSampleStyleSheet()
     def ps(n,**kw): return ParagraphStyle(n,parent=S["BodyText"],**kw)
-    ts  =ps("T",textColor=C["nt"],      fontSize=22,fontName="Helvetica-Bold",spaceAfter=2)
-    ss  =ps("ST",textColor=C["mut"],    fontSize=9,fontName="Helvetica",spaceAfter=8)
-    h2s =ps("H2",textColor=C["acc"],    fontSize=11,fontName="Helvetica-Bold",spaceBefore=12,spaceAfter=4)
-    bs  =ps("B", textColor=C["txt"],    fontSize=8,fontName="Helvetica",leading=12)
-    fs  =ps("F", textColor=C["mut"],    fontSize=6.5,fontName="Helvetica",alignment=1)
-    ws  =ps("W", textColor=C["red"],    fontSize=8,fontName="Helvetica-Oblique",leading=12)
-    ni  =ps("NI",textColor=C["nt"],     fontSize=8,fontName="Helvetica-Bold",leading=12.5)
+    ts  =ps("T",textColor=white,       fontSize=22,fontName="Helvetica-Bold",spaceAfter=2)
+    ss  =ps("ST",textColor=C["mut"],   fontSize=9,fontName="Helvetica",spaceAfter=8)
+    h2s =ps("H2",textColor=C["acc"],   fontSize=11,fontName="Helvetica-Bold",spaceBefore=12,spaceAfter=4)
+    bs  =ps("B", textColor=C["txt"],   fontSize=8,fontName="Helvetica",leading=12)
+    fs  =ps("F", textColor=C["mut"],   fontSize=6.5,fontName="Helvetica",alignment=1)
+    ws  =ps("W", textColor=HexColor("#FCA5A5"),fontSize=8,fontName="Helvetica-Oblique",leading=12)
+    ni  =ps("NI",textColor=C["nt"],    fontSize=8,fontName="Helvetica-Bold",leading=12.5)
     def note(txt):
         t=Table([[Paragraph(txt,ni)]],colWidths=[7.3*inch])
         t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1),C["nb"]),
@@ -563,7 +552,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
     story.append(hdr); story.append(Spacer(1,8))
     av=Table([[Paragraph("<b>AVISO:</b> Estimaciones colorimétricas digitales. No sustituyen métodos "
                          "instrumentales certificados.",ws)]], colWidths=[7.3*inch])
-    av.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),HexColor("#FEE2E2")),
+    av.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),HexColor("#450a0a")),
         ("LEFTPADDING",(0,0),(-1,-1),10),("RIGHTPADDING",(0,0),(-1,-1),10),
         ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6)]))
     story.append(av); story.append(Spacer(1,12))
@@ -687,7 +676,7 @@ with st.sidebar:
     st.markdown(f"<p style='color:{MUTED};font-size:.68rem;line-height:1.6;'>Estimaciones colorimétricas digitales. No sustituyen métodos certificados.</p>",unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  ANÁLISIS (CAPTURA, PROCESAMIENTO, CALIBRACIÓN, REPORTE)
+#  PESTAÑA ANÁLISIS (CAPTURA, PROCESAMIENTO, CALIBRACIÓN, REPORTE)
 # ══════════════════════════════════════════════════════════════════════════════
 
 if pagina=="Análisis":
