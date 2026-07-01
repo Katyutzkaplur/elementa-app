@@ -500,7 +500,8 @@ def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
-            cal_png_bytes,selected_signal,unit="mg/L", ida=None, inversion=False):
+            cal_png_bytes,selected_signal,unit="mg/L", ida=None, inversion=False,
+            plate_grid_fig=None):
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.colors import HexColor, white
@@ -541,7 +542,6 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
             ("LEFTPADDING",(0,0),(-1,-1),4)]))
         return t
     
-    # Función para formatear valores con el número correcto de decimales
     def fmt_val(value, decimals=2):
         """Formatea un valor numérico con el número especificado de decimales."""
         if value is None:
@@ -576,19 +576,16 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
     if df_signals is not None and not df_signals.empty:
         story.append(Paragraph("B) Tabla de barrido de señales digitales", h2s))
         story.append(note("La selección se basó en el IDA. IDA = 0.30·R²_norm + 0.25·(1-Sy/x_norm) + 0.15·|m|_norm + 0.10·(1-LOD_norm) + 0.10·(1-LOQ_norm) + 0.10·(1-CV_norm)"))
-        # Formatear la tabla de barrido con los decimales correctos
         cols_show = ["signal","type","r2","sy_x","slope","lod","loq","IDA","inverted"]
         available = [c for c in cols_show if c in df_signals.columns]
-        # Crear tabla formateada
         td = [available]
         for _, row in df_signals[available].iterrows():
             formatted_row = []
             for col in available:
                 val = row[col]
                 if col == "r2":
-                    formatted_row.append(fmt_val(val, 4))  # R² con 4 decimales
+                    formatted_row.append(fmt_val(val, 4))
                 elif col == "inverted":
-                    # Convertir True/False a Sí/No
                     if isinstance(val, bool):
                         formatted_row.append("Sí" if val else "No")
                     else:
@@ -596,7 +593,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
                 elif col == "type" or col == "signal":
                     formatted_row.append(str(val))
                 else:
-                    formatted_row.append(fmt_val(val, 2))  # resto con 2 decimales
+                    formatted_row.append(fmt_val(val, 2))
             td.append(formatted_row)
         col_w = doc.width / len(available)
         story.append(dtbl(td, [col_w]*len(available), C["grn"]))
@@ -639,6 +636,19 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         cols=list(df_results.columns); td3=[cols]+[[f"{v:.3f}" if isinstance(v,float) else str(v) for v in row] for _,row in df_results.iterrows()]
         cw3=[doc.width/len(cols)]*len(cols)
         story.append(dtbl(td3,cw3)); story.append(Spacer(1,10))
+    
+    # ─── NUEVO: Mapa de placa ──────────────────────────────────────────
+    if plate_grid_fig is not None:
+        story.append(Paragraph("F) Mapa de placa", h2s))
+        # Convertir figura Plotly a PNG
+        try:
+            img_bytes = plate_grid_fig.to_image(format="png", width=800, height=500)
+            story.append(RLImage(BytesIO(img_bytes), width=5.5*inch, height=3.5*inch, kind="proportional"))
+        except Exception:
+            story.append(note("No se pudo generar la imagen del mapa de placa."))
+        story.append(Spacer(1,10))
+    # ────────────────────────────────────────────────────────────────────
+    
     story.append(HRFlowable(width="100%",thickness=0.5,color=C["brd"]))
     story.append(Spacer(1,5))
     story.append(note("<b>Nota científica:</b> La absorbancia digital se calcula sobre el complemento del color cuando es necesario. La selección del modelo se realiza mediante IDA."))
@@ -989,11 +999,22 @@ if pagina=="Análisis":
                 cal_png=cal_to_png(cal,concs,sigs,ch,"Fenólicos totales",unit,lod,loq)
             else: cal_png=None
             try:
-                pdf_b=gen_pdf(analyte="Fenólicos totales",method="Folin-Ciocalteu (760 nm)",
-                              df_signals=pd.DataFrame(st.session_state.get("ida_df",[])),df_results=df_res,cal=cal,
-                              annotated_img=st.session_state.get("annotated_img"),tri_df=st.session_state.get("tri_df"),
-                              cal_png_bytes=cal_png,selected_signal=st.session_state.get("selected_signal",""),
-                              unit=st.session_state.get("cal_unit","mg/L"),ida=ida_val,inversion=inverted)
+                # Generar mapa de placa para el PDF (si es microplaca)
+plate_grid_fig = None
+if st.session_state.get("device_type","") == "Microplaca de 96 pocillos":
+    adf = st.session_state.get("assignment_df")
+    if adf is not None:
+        try:
+            plate_grid_fig = plot_plate_grid(adf)
+        except Exception:
+            plate_grid_fig = None
+
+pdf_b=gen_pdf(analyte="Fenólicos totales",method="Folin-Ciocalteu (760 nm)",
+              df_signals=pd.DataFrame(st.session_state.get("ida_df",[])),df_results=df_res,cal=cal,
+              annotated_img=st.session_state.get("annotated_img"),tri_df=st.session_state.get("tri_df"),
+              cal_png_bytes=cal_png,selected_signal=st.session_state.get("selected_signal",""),
+              unit=st.session_state.get("cal_unit","mg/L"),ida=ida_val,inversion=inverted,
+              plate_grid_fig=plate_grid_fig)
                 b64=base64.b64encode(pdf_b).decode(); fname=f"Elementa_v1_{sanitize_filename('Fenólicos_totales')}_{now_mx():%Y%m%d_%H%M}.pdf"
                 st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{fname}" style="background:{ACCENT};color:white;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;">Descargar PDF</a>',unsafe_allow_html=True)
                 okbox("PDF generado.")
