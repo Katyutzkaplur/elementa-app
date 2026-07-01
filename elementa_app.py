@@ -540,6 +540,19 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
             ("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),
             ("LEFTPADDING",(0,0),(-1,-1),4)]))
         return t
+    
+    # Función para formatear valores con el número correcto de decimales
+    def fmt_val(value, decimals=2):
+        """Formatea un valor numérico con el número especificado de decimales."""
+        if value is None:
+            return "N/D"
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            return "N/D"
+        try:
+            return f"{float(value):.{decimals}f}"
+        except (ValueError, TypeError):
+            return str(value)
+    
     now=fmt_mx(); story=[]
     hdr=Table([[Paragraph("ELEMENTA v1",ts),
                 Paragraph(f"<b>Reporte de análisis colorimétrico</b><br/><font size='8'>{now}</font><br/><font size='8'>Analito: {analyte} | Método: {method} | λ ref: 760 nm</font>",
@@ -562,10 +575,29 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         story.append(Spacer(1,8))
     if df_signals is not None and not df_signals.empty:
         story.append(Paragraph("B) Tabla de barrido de señales digitales", h2s))
-        story.append(note("La selección se basó en el IDA."))
+        story.append(note("La selección se basó en el IDA. IDA = 0.30·R²_norm + 0.25·(1-Sy/x_norm) + 0.15·|m|_norm + 0.10·(1-LOD_norm) + 0.10·(1-LOQ_norm) + 0.10·(1-CV_norm)"))
+        # Formatear la tabla de barrido con los decimales correctos
         cols_show = ["signal","type","r2","sy_x","slope","lod","loq","IDA","inverted"]
         available = [c for c in cols_show if c in df_signals.columns]
-        td = [available] + [[str(v) for v in row] for _,row in df_signals[available].iterrows()]
+        # Crear tabla formateada
+        td = [available]
+        for _, row in df_signals[available].iterrows():
+            formatted_row = []
+            for col in available:
+                val = row[col]
+                if col == "r2":
+                    formatted_row.append(fmt_val(val, 4))  # R² con 4 decimales
+                elif col == "inverted":
+                    # Convertir True/False a Sí/No
+                    if isinstance(val, bool):
+                        formatted_row.append("Sí" if val else "No")
+                    else:
+                        formatted_row.append(str(val))
+                elif col == "type" or col == "signal":
+                    formatted_row.append(str(val))
+                else:
+                    formatted_row.append(fmt_val(val, 2))  # resto con 2 decimales
+            td.append(formatted_row)
         col_w = doc.width / len(available)
         story.append(dtbl(td, [col_w]*len(available), C["grn"]))
         story.append(Spacer(1,10))
@@ -579,13 +611,22 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         story.append(Paragraph("D) Resumen analítico", h2s))
         lod=cal.get("LOD",float("nan")); loq=cal.get("LOQ",float("nan"))
         summary_data=[
-            ["Parámetro","Valor"],["Analito",analyte],["Método",method],["λ referencia","760 nm"],
-            ["Señal seleccionada",selected_signal],["Pendiente (m)",f"{cal['m']:.4f}"],["Intercepto (b)",f"{cal['b']:.4f}"],
-            ["R²",f"{cal['r2']:.5f}"],["Sy/x",f"{cal.get('sy_x','N/D')}"],
-            ["LOD",f"{lod:.3f}" if not math.isnan(lod) else "N/D"],
-            ["LOQ",f"{loq:.3f}" if not math.isnan(loq) else "N/D"],
-            ["IDA",f"{ida:.1f}" if ida else "N/D"],["Nº estándares",str(cal.get("n",""))],
-            ["Blanco usado",st.session_state.get("blank_label","No especificado")],["Fecha/hora",now],
+            ["Parámetro","Valor"],
+            ["Analito",analyte],
+            ["Método",method],
+            ["λ referencia","760 nm"],
+            ["Señal seleccionada",selected_signal],
+            ["Pendiente (m)",fmt_val(cal["m"], 2)],
+            ["Intercepto (b)",fmt_val(cal["b"], 2)],
+            ["R²",fmt_val(cal["r2"], 4)],
+            ["Sy/x",fmt_val(cal.get("sy_x","N/D"), 2)],
+            ["LOD",fmt_val(lod, 2) if not math.isnan(lod) else "N/D"],
+            ["LOQ",fmt_val(loq, 2) if not math.isnan(loq) else "N/D"],
+            ["IDA",fmt_val(ida, 2) if ida else "N/D"],
+            ["¿Señal invertida?", "Sí" if inversion else "No"],
+            ["Nº estándares",str(cal.get("n",""))],
+            ["Blanco usado",st.session_state.get("blank_label","No especificado")],
+            ["Fecha/hora",now],
         ]
         story.append(dtbl(summary_data,[2.5*inch,4.8*inch],C["grn"])); story.append(Spacer(1,10))
     if tri_df is not None and not tri_df.empty:
@@ -605,7 +646,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
     story.append(Paragraph("Derechos reservados (Katyutzka Villarreal, 2026)  |  Elementa v1",ps("F",textColor=C["mut"],fontSize=6.5,alignment=1)))
     doc.build(story); buf.seek(0)
     return buf.read()
-
+                
 def sanitize_filename(name):
     return re.sub(r'[^\w\-_\.]','',name.replace("(","").replace(")","").replace(" ","_"))
 
