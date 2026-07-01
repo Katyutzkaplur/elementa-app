@@ -290,9 +290,19 @@ def plot_plate_grid(asgn_df):
     return fig
 
 def plot_r2_bars(ida_df):
-    if ida_df is None or ida_df.empty:
+    """Gráfica de barras comparativa de R² para todas las señales evaluadas."""
+    if ida_df is None:
         return go.Figure()
-    df = pd.DataFrame(ida_df)
+    # Convertir a DataFrame si es una lista de diccionarios
+    if isinstance(ida_df, list):
+        if len(ida_df) == 0:
+            return go.Figure()
+        df = pd.DataFrame(ida_df)
+    else:
+        if hasattr(ida_df, 'empty') and ida_df.empty:
+            return go.Figure()
+        df = ida_df.copy()
+    
     df = df.sort_values("r2", ascending=False)
     labels = df["signal"].tolist()
     r2_vals = df["r2"].tolist()
@@ -613,8 +623,7 @@ def init():
               cal_concs=None,cal_sigs=None,cal_unit="mg/L",cal_analyte="",cal_ch="",
               cal_png=None,selected_signal="G_norm",
               assignment_df_backup=None,rois_backup=None,
-              original_image=None, assignment_editor_data=None, ida_df=None,
-              plate_auto_center=True)
+              original_image=None, assignment_editor_data=None, ida_df=None)
     for k,v in defs.items():
         if k not in st.session_state: st.session_state[k]=v
 init()
@@ -710,8 +719,10 @@ if pagina=="Análisis":
                     rw=st.slider("W",5,200,40,key="vrw"); rh=st.slider("H",5,300,60,key="vrh"); dx=st.slider("dX",0,300,int(W*.08),key="vdx"); dy=st.slider("dY",0,300,0,key="vdy")
                     rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
                 elif is_plate:
-                    diam=st.session_state.get("global_diam",60); n_rows=st.number_input("Filas",1,8,8,1,key="prows"); n_cols=st.number_input("Columnas",1,12,12,1,key="pcols")
-                    auto_center = st.checkbox("Centrar grid automáticamente en la imagen", value=st.session_state.get("plate_auto_center", True), key="plate_auto_center")
+                    diam=st.session_state.get("global_diam",60)
+                    n_rows=st.number_input("Filas",1,8,8,1,key="prows")
+                    n_cols=st.number_input("Columnas",1,12,12,1,key="pcols")
+                    auto_center = st.checkbox("Centrar grid automáticamente en la imagen", value=True, key="plate_auto_center")
                     if auto_center:
                         dx_val, dy_val = 141, 143
                         grid_w = dx_val * (int(n_cols) - 1) + diam
@@ -721,8 +732,10 @@ if pagina=="Análisis":
                         st.info(f"Grid centrado automáticamente. Origen calculado: X={x0_center}, Y={y0_center}")
                     else:
                         x0_center, y0_center = 172, 196
-                    x0=st.slider("X",0,W-1,x0_center,key="px0"); y0=st.slider("Y",0,H-1,y0_center,key="py0")
-                    dx=st.slider("dX",10,300,141,key="pdx"); dy=st.slider("dY",10,300,143,key="pdy")
+                    x0=st.slider("X",0,W-1,x0_center,key="px0")
+                    y0=st.slider("Y",0,H-1,y0_center,key="py0")
+                    dx=st.slider("dX",10,300,141,key="pdx")
+                    dy=st.slider("dY",10,300,143,key="pdy")
                     rois=gen_rois_plate(x0,y0,diam,diam,dx,dy,int(n_rows),int(n_cols))
                 elif is_tubes:
                     radius=st.slider("Radio",5,50,15,key="t_radius"); h=st.slider("Altura",50,500,200,key="t_h"); ntubes=st.number_input("N tubos",1,12,6,1,key="t_ntubes")
