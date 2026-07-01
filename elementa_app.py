@@ -1,4 +1,4 @@
-"""
+ """
 Elementa v1 — Sistema Analítico Colorimétrico Digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
@@ -496,12 +496,12 @@ def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
     except: return None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  REPORTE PDF (CON MAPA DE PLACA)
+#  REPORTE PDF (CON MAPA DE PLACA COMO TABLA NATIVA)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
             cal_png_bytes,selected_signal,unit="mg/L", ida=None, inversion=False,
-            plate_grid_fig=None):
+            assignment_df=None):
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.colors import HexColor, white
@@ -509,11 +509,20 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
     from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame,
                                      Paragraph, Spacer, Table, TableStyle,
                                      Image as RLImage, HRFlowable, KeepTogether)
-    import plotly.io as pio
     C={"bg":HexColor("#020617"),"card":HexColor("#1E293B"),"card2":HexColor("#263546"),
        "acc":HexColor("#2563EB"),"grn":HexColor("#059669"),"red":HexColor("#DC2626"),
        "txt":HexColor("#E2E8F0"),"mut":HexColor("#94A3B8"),"brd":HexColor("#334155"),
        "nb":HexColor("#E8EDF3"),"nt":HexColor("#0A0A0A")}
+    
+    PLATE_COLORS = {
+        "Blanco":           HexColor("#0EA5E9"),
+        "Estándar":         HexColor("#059669"),
+        "Muestra":          HexColor("#2563EB"),
+        "Control":          HexColor("#7C3AED"),
+        "Adición estándar": HexColor("#DB2777"),
+        "Sin asignar":      HexColor("#1E293B"),
+    }
+    
     buf=BytesIO()
     def bg(canvas,doc): canvas.saveState(); canvas.setFillColor(C["bg"]); canvas.rect(0,0,letter[0],letter[1],fill=1,stroke=0); canvas.restoreState()
     doc=BaseDocTemplate(buf,pagesize=letter,leftMargin=.5*inch,rightMargin=.5*inch,topMargin=.5*inch,bottomMargin=.5*inch)
@@ -549,6 +558,50 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         try: return f"{float(value):.{decimals}f}"
         except: return str(value)
     
+    def build_plate_grid_table(asgn_df):
+        if asgn_df is None or asgn_df.empty:
+            return None
+        rl = list("ABCDEFGH")
+        all_rows = sorted(set(r for r in rl if any(r in roi for roi in asgn_df["ROI"])), key=lambda x: rl.index(x))
+        all_cols = sorted(set(int("".join(c for c in roi if c.isdigit())) for roi in asgn_df["ROI"] if any(c.isdigit() for c in roi)))
+        if not all_rows or not all_cols:
+            return None
+        tipo_map = dict(zip(asgn_df["ROI"], asgn_df["Tipo"]))
+        short_map = {"Blanco":"BL","Estándar":"ST","Muestra":"SM","Control":"CT","Adición estándar":"AE","Sin asignar":"--"}
+        table_data = [[""] + [str(c) for c in all_cols]]
+        for rw in all_rows:
+            row_data = [rw]
+            for cl in all_cols:
+                roi = f"{rw}{cl}"
+                tipo = tipo_map.get(roi, "Sin asignar")
+                short = short_map.get(tipo, "--")
+                row_data.append(short)
+            table_data.append(row_data)
+        col_widths = [0.3*inch] + [0.45*inch] * len(all_cols)
+        t = Table(table_data, colWidths=col_widths)
+        style_commands = [
+            ("BACKGROUND", (0,0), (-1,0), C["acc"]),
+            ("TEXTCOLOR", (0,0), (-1,0), white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 6),
+            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ("GRID", (0,0), (-1,-1), 0.5, C["brd"]),
+            ("TOPPADDING", (0,0), (-1,-1), 4),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+            ("LEFTPADDING", (0,0), (-1,-1), 2),
+            ("RIGHTPADDING", (0,0), (-1,-1), 2),
+        ]
+        for i, rw in enumerate(all_rows):
+            for j, cl in enumerate(all_cols):
+                roi = f"{rw}{cl}"
+                tipo = tipo_map.get(roi, "Sin asignar")
+                color = PLATE_COLORS.get(tipo, C["card"])
+                style_commands.append(("BACKGROUND", (j+1, i+1), (j+1, i+1), color))
+                style_commands.append(("TEXTCOLOR", (j+1, i+1), (j+1, i+1), white))
+        t.setStyle(TableStyle(style_commands))
+        return t
+    
     now=fmt_mx(); story=[]
     hdr=Table([[Paragraph("ELEMENTA v1",ts),
                 Paragraph(f"<b>Reporte de análisis colorimétrico</b><br/><font size='8'>{now}</font><br/><font size='8'>Analito: {analyte} | Método: {method} | λ ref: 760 nm</font>",
@@ -564,11 +617,15 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         ("LEFTPADDING",(0,0),(-1,-1),10),("RIGHTPADDING",(0,0),(-1,-1),10),
         ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6)]))
     story.append(av); story.append(Spacer(1,12))
+    
+    # A) Imagen procesada
     if annotated_img is not None:
-        story.append(Paragraph("A) Imagen procesada", h2s))
+        story.append(Paragraph("A) Imagen procesada — regiones de interés", h2s))
         pil=Image.fromarray(annotated_img); ib=BytesIO(); pil.save(ib,"PNG"); ib.seek(0)
         story.append(RLImage(ib,width=5.5*inch,height=3.5*inch,kind="proportional"))
         story.append(Spacer(1,8))
+    
+    # B) Tabla de barrido
     if df_signals is not None and not df_signals.empty:
         story.append(Paragraph("B) Tabla de barrido de señales digitales", h2s))
         story.append(note("La selección se basó en el IDA."))
@@ -580,7 +637,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
             for col in available:
                 val = row[col]
                 if col == "r2": formatted_row.append(fmt_val(val, 4))
-                elif col == "sy_x": formatted_row.append(fmt_val(val, 4))  # Sy/x con 4 decimales
+                elif col == "sy_x": formatted_row.append(fmt_val(val, 4))
                 elif col == "inverted": formatted_row.append("Sí" if val else "No")
                 elif col in ("type","signal"): formatted_row.append(str(val))
                 else: formatted_row.append(fmt_val(val, 2))
@@ -588,12 +645,16 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         col_w = doc.width / len(available)
         story.append(dtbl(td, [col_w]*len(available), C["grn"]))
         story.append(Spacer(1,10))
+    
+    # C) Curva de calibración
     if cal and cal_png_bytes:
-        story.append(Paragraph("C) Curva de calibración final", h2s))
+        story.append(Paragraph("C) Curva de calibración final optimizada", h2s))
         story.append(RLImage(BytesIO(cal_png_bytes),width=5.8*inch,height=3.2*inch))
         txt = f"Señal seleccionada: {selected_signal}."
         if inversion: txt += " Se aplicó inversión de señal."
         story.append(note(txt)); story.append(Spacer(1,8))
+    
+    # D) Resumen analítico
     if cal:
         story.append(Paragraph("D) Resumen analítico", h2s))
         lod=cal.get("LOD",float("nan")); loq=cal.get("LOQ",float("nan"))
@@ -601,7 +662,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
             ["Parámetro","Valor"],["Analito",analyte],["Método",method],["λ referencia","760 nm"],
             ["Señal seleccionada",selected_signal],["Pendiente (m)",fmt_val(cal["m"],2)],
             ["Intercepto (b)",fmt_val(cal["b"],2)],["R²",fmt_val(cal["r2"],4)],
-            ["Sy/x",fmt_val(cal.get("sy_x","N/D"),4)],  # Sy/x con 4 decimales
+            ["Sy/x",fmt_val(cal.get("sy_x","N/D"),4)],
             ["LOD",fmt_val(lod,2) if not math.isnan(lod) else "N/D"],
             ["LOQ",fmt_val(loq,2) if not math.isnan(loq) else "N/D"],
             ["IDA",fmt_val(ida,2) if ida else "N/D"],
@@ -610,25 +671,33 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
             ["Blanco usado",st.session_state.get("blank_label","No especificado")],["Fecha/hora",now],
         ]
         story.append(dtbl(summary_data,[2.5*inch,4.8*inch],C["grn"])); story.append(Spacer(1,10))
+    
+    # Triplicados
     if tri_df is not None and not tri_df.empty:
         story.append(Paragraph("Estadísticas de triplicados", h2s))
         cols=list(tri_df.columns); td2=[cols]+[[str(v) for v in row] for _,row in tri_df.iterrows()]
         cw2=[doc.width/len(cols)]*len(cols)
         story.append(dtbl(td2,cw2,C["grn"])); story.append(Spacer(1,10))
+    
+    # E) Resultados
     if df_results is not None and not df_results.empty:
         story.append(Paragraph("E) Resultados de cuantificación", h2s))
         cols=list(df_results.columns); td3=[cols]+[[f"{v:.3f}" if isinstance(v,float) else str(v) for v in row] for _,row in df_results.iterrows()]
         cw3=[doc.width/len(cols)]*len(cols)
         story.append(dtbl(td3,cw3)); story.append(Spacer(1,10))
-    if plate_grid_fig is not None:
+    
+    # F) Mapa de placa
+    if assignment_df is not None and not assignment_df.empty:
         story.append(Paragraph("F) Mapa de placa", h2s))
-        try:
-            # Convertir figura Plotly a PNG usando plotly.io
-            img_bytes = pio.to_image(plate_grid_fig, format="png", width=800, height=500)
-            story.append(RLImage(BytesIO(img_bytes), width=5.5*inch, height=3.5*inch, kind="proportional"))
-        except Exception as e:
-            story.append(note(f"No se pudo generar la imagen del mapa de placa. Error: {str(e)}"))
+        plate_table = build_plate_grid_table(assignment_df)
+        if plate_table is not None:
+            story.append(plate_table)
+            story.append(Spacer(1,4))
+            story.append(note("BL=Blanco, ST=Estándar, SM=Muestra, CT=Control, AE=Adición estándar"))
+        else:
+            story.append(note("No se pudo generar el mapa de placa."))
         story.append(Spacer(1,10))
+    
     story.append(HRFlowable(width="100%",thickness=0.5,color=C["brd"]))
     story.append(Spacer(1,5))
     story.append(note("<b>Nota científica:</b> La absorbancia digital se calcula sobre el complemento del color cuando es necesario. La selección del modelo se realiza mediante IDA."))
@@ -968,23 +1037,13 @@ if pagina=="Análisis":
             else:
                 cal_png=None
             
-            # Generar mapa de placa para el PDF (si es microplaca)
-            plate_grid_fig = None
-            if st.session_state.get("device_type","") == "Microplaca de 96 pocillos":
-                adf = st.session_state.get("assignment_df")
-                if adf is not None:
-                    try:
-                        plate_grid_fig = plot_plate_grid(adf)
-                    except Exception:
-                        plate_grid_fig = None
-            
             try:
                 pdf_b=gen_pdf(analyte="Fenólicos totales",method="Folin-Ciocalteu (760 nm)",
                               df_signals=pd.DataFrame(st.session_state.get("ida_df",[])),df_results=df_res,cal=cal,
                               annotated_img=st.session_state.get("annotated_img"),tri_df=st.session_state.get("tri_df"),
                               cal_png_bytes=cal_png,selected_signal=st.session_state.get("selected_signal",""),
                               unit=st.session_state.get("cal_unit","mg/L"),ida=ida_val,inversion=inverted,
-                              plate_grid_fig=plate_grid_fig)
+                              assignment_df=st.session_state.get("assignment_df"))
                 b64=base64.b64encode(pdf_b).decode()
                 fname=f"Elementa_v1_{sanitize_filename('Fenólicos_totales')}_{now_mx():%Y%m%d_%H%M}.pdf"
                 st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{fname}" style="background:{ACCENT};color:white;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;">Descargar PDF</a>',unsafe_allow_html=True)
