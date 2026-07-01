@@ -496,7 +496,7 @@ def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
     except: return None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  REPORTE PDF
+#  REPORTE PDF (CON MAPA DE PLACA)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
@@ -543,15 +543,10 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         return t
     
     def fmt_val(value, decimals=2):
-        """Formatea un valor numérico con el número especificado de decimales."""
-        if value is None:
-            return "N/D"
-        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-            return "N/D"
-        try:
-            return f"{float(value):.{decimals}f}"
-        except (ValueError, TypeError):
-            return str(value)
+        if value is None: return "N/D"
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)): return "N/D"
+        try: return f"{float(value):.{decimals}f}"
+        except: return str(value)
     
     now=fmt_mx(); story=[]
     hdr=Table([[Paragraph("ELEMENTA v1",ts),
@@ -575,7 +570,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         story.append(Spacer(1,8))
     if df_signals is not None and not df_signals.empty:
         story.append(Paragraph("B) Tabla de barrido de señales digitales", h2s))
-        story.append(note("La selección se basó en el IDA. IDA = 0.30·R²_norm + 0.25·(1-Sy/x_norm) + 0.15·|m|_norm + 0.10·(1-LOD_norm) + 0.10·(1-LOQ_norm) + 0.10·(1-CV_norm)"))
+        story.append(note("La selección se basó en el IDA."))
         cols_show = ["signal","type","r2","sy_x","slope","lod","loq","IDA","inverted"]
         available = [c for c in cols_show if c in df_signals.columns]
         td = [available]
@@ -583,17 +578,10 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
             formatted_row = []
             for col in available:
                 val = row[col]
-                if col == "r2":
-                    formatted_row.append(fmt_val(val, 4))
-                elif col == "inverted":
-                    if isinstance(val, bool):
-                        formatted_row.append("Sí" if val else "No")
-                    else:
-                        formatted_row.append(str(val))
-                elif col == "type" or col == "signal":
-                    formatted_row.append(str(val))
-                else:
-                    formatted_row.append(fmt_val(val, 2))
+                if col == "r2": formatted_row.append(fmt_val(val, 4))
+                elif col == "inverted": formatted_row.append("Sí" if val else "No")
+                elif col in ("type","signal"): formatted_row.append(str(val))
+                else: formatted_row.append(fmt_val(val, 2))
             td.append(formatted_row)
         col_w = doc.width / len(available)
         story.append(dtbl(td, [col_w]*len(available), C["grn"]))
@@ -608,22 +596,16 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         story.append(Paragraph("D) Resumen analítico", h2s))
         lod=cal.get("LOD",float("nan")); loq=cal.get("LOQ",float("nan"))
         summary_data=[
-            ["Parámetro","Valor"],
-            ["Analito",analyte],
-            ["Método",method],
-            ["λ referencia","760 nm"],
-            ["Señal seleccionada",selected_signal],
-            ["Pendiente (m)",fmt_val(cal["m"], 2)],
-            ["Intercepto (b)",fmt_val(cal["b"], 2)],
-            ["R²",fmt_val(cal["r2"], 4)],
-            ["Sy/x",fmt_val(cal.get("sy_x","N/D"), 2)],
-            ["LOD",fmt_val(lod, 2) if not math.isnan(lod) else "N/D"],
-            ["LOQ",fmt_val(loq, 2) if not math.isnan(loq) else "N/D"],
-            ["IDA",fmt_val(ida, 2) if ida else "N/D"],
-            ["¿Señal invertida?", "Sí" if inversion else "No"],
+            ["Parámetro","Valor"],["Analito",analyte],["Método",method],["λ referencia","760 nm"],
+            ["Señal seleccionada",selected_signal],["Pendiente (m)",fmt_val(cal["m"],2)],
+            ["Intercepto (b)",fmt_val(cal["b"],2)],["R²",fmt_val(cal["r2"],4)],
+            ["Sy/x",fmt_val(cal.get("sy_x","N/D"),2)],
+            ["LOD",fmt_val(lod,2) if not math.isnan(lod) else "N/D"],
+            ["LOQ",fmt_val(loq,2) if not math.isnan(loq) else "N/D"],
+            ["IDA",fmt_val(ida,2) if ida else "N/D"],
+            ["¿Señal invertida?","Sí" if inversion else "No"],
             ["Nº estándares",str(cal.get("n",""))],
-            ["Blanco usado",st.session_state.get("blank_label","No especificado")],
-            ["Fecha/hora",now],
+            ["Blanco usado",st.session_state.get("blank_label","No especificado")],["Fecha/hora",now],
         ]
         story.append(dtbl(summary_data,[2.5*inch,4.8*inch],C["grn"])); story.append(Spacer(1,10))
     if tri_df is not None and not tri_df.empty:
@@ -636,19 +618,14 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         cols=list(df_results.columns); td3=[cols]+[[f"{v:.3f}" if isinstance(v,float) else str(v) for v in row] for _,row in df_results.iterrows()]
         cw3=[doc.width/len(cols)]*len(cols)
         story.append(dtbl(td3,cw3)); story.append(Spacer(1,10))
-    
-    # ─── NUEVO: Mapa de placa ──────────────────────────────────────────
     if plate_grid_fig is not None:
         story.append(Paragraph("F) Mapa de placa", h2s))
-        # Convertir figura Plotly a PNG
         try:
             img_bytes = plate_grid_fig.to_image(format="png", width=800, height=500)
             story.append(RLImage(BytesIO(img_bytes), width=5.5*inch, height=3.5*inch, kind="proportional"))
         except Exception:
             story.append(note("No se pudo generar la imagen del mapa de placa."))
         story.append(Spacer(1,10))
-    # ────────────────────────────────────────────────────────────────────
-    
     story.append(HRFlowable(width="100%",thickness=0.5,color=C["brd"]))
     story.append(Spacer(1,5))
     story.append(note("<b>Nota científica:</b> La absorbancia digital se calcula sobre el complemento del color cuando es necesario. La selección del modelo se realiza mediante IDA."))
@@ -656,7 +633,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
     story.append(Paragraph("Derechos reservados (Katyutzka Villarreal, 2026)  |  Elementa v1",ps("F",textColor=C["mut"],fontSize=6.5,alignment=1)))
     doc.build(story); buf.seek(0)
     return buf.read()
-                
+
 def sanitize_filename(name):
     return re.sub(r'[^\w\-_\.]','',name.replace("(","").replace(")","").replace(" ","_"))
 
@@ -847,22 +824,17 @@ if pagina=="Análisis":
             st.plotly_chart(plot_plate_grid(edited), use_container_width=True, key="plate_grid")
         footer()
 
-    # ── CALIBRACIÓN (MODIFICADO: barrido sin necesidad de estándares) ──────
+    # ── CALIBRACIÓN (barrido sin necesidad de estándares) ──────────────────
     with tab_cal:
         rois=st.session_state.get("rois",[]); img=st.session_state.get("image"); adf=st.session_state.get("assignment_df")
         if not rois or img is None or adf is None: wbox("Complete Captura y Procesamiento."); footer(); st.stop()
         blank=st.session_state.get("blank_label")
 
         with st.expander("ℹ️ ¿Qué es el IDA?", expanded=False):
-            st.markdown("""
-            **Índice de Desempeño Analítico (IDA)**
-            
-            Puntuación de 0 a 100 que combina múltiples parámetros de calidad analítica.
-            Solo se calcula cuando hay al menos 2 estándares con concentraciones diferentes.
-            """)
-            st.latex(r"""
-            \text{IDA} = 0.30 \times R^2_{\text{norm}} + 0.25 \times (1 - S_{y/x,\text{norm}}) + 0.15 \times |m|_{\text{norm}} + 0.10 \times (1 - \text{LOD}_{\text{norm}}) + 0.10 \times (1 - \text{LOQ}_{\text{norm}}) + 0.10 \times (1 - \text{CV}_{\text{norm}})
-            """)
+            st.markdown("**Índice de Desempeño Analítico (IDA)**")
+            st.markdown("Puntuación de 0 a 100 que combina múltiples parámetros de calidad analítica.")
+            st.latex(r"\text{IDA} = 0.30 R^2_{\text{norm}} + 0.25(1-S_{y/x,\text{norm}}) + 0.15|m|_{\text{norm}} + 0.10(1-\text{LOD}_{\text{norm}}) + 0.10(1-\text{LOQ}_{\text{norm}}) + 0.10(1-\text{CV}_{\text{norm}})")
+            st.markdown("Solo se calcula cuando hay al menos 2 estándares con concentraciones diferentes.")
 
         if st.button("Extraer señales y barrer",key="btn_cal"):
             with st.spinner("Procesando todas las señales digitales..."):
@@ -874,12 +846,10 @@ if pagina=="Análisis":
                 df_signals=compute_absorbances(df_signals,blank,signal_columns)
                 df_merged=df_signals.merge(adf[["ROI","Tipo","Nombre","Concentracion","Unidad","Analito","Factor_dil"]],on="ROI",how="left")
                 
-                # Guardar datos extraídos siempre
                 st.session_state["df_signals"]=df_signals
                 st.session_state["df_merged"]=df_merged
                 
                 std=df_merged[df_merged["Tipo"]=="Estándar"]
-                # Solo calcular regresión e IDA si hay al menos 2 estándares con concentraciones diferentes
                 if len(std)>=2 and "Concentracion" in std.columns and len(std["Concentracion"].dropna().unique())>=2:
                     concs=std["Concentracion"].values.astype(float)
                     ida_list,all_signals=[],{}
@@ -916,15 +886,11 @@ if pagina=="Análisis":
                     else:
                         st.warning("No se pudo calcular ninguna regresión. Revise los datos de los estándares.")
                 else:
-                    # Sin suficientes estándares, mostrar solo tabla de señales extraídas
-                    st.info("📊 **Barrido de señales completado** (sin calibración).\n\n"
-                            "Para calcular regresiones e IDA, asigne al menos **2 pocillos como 'Estándar'** "
-                            "con **concentraciones diferentes** en la pestaña Procesamiento.")
+                    st.info("📊 **Barrido de señales completado** (sin calibración).\n\nPara calcular regresiones e IDA, asigne al menos **2 pocillos como 'Estándar'** con **concentraciones diferentes** en la pestaña Procesamiento.")
                     st.session_state["ida_df"]=None
                     st.session_state["all_signals"]={}
                     st.session_state["cal_result"]=None
 
-        # Mostrar resultados
         df_signals=st.session_state.get("df_signals")
         if df_signals is not None:
             st.markdown("### 📊 Datos extraídos")
@@ -957,7 +923,6 @@ if pagina=="Análisis":
                     slope_msg,slope_col=interpret_slope(cal["m"])
                     st.markdown(f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};padding:10px;">{slope_msg}</div>',unsafe_allow_html=True)
 
-        # Cuantificación (solo si hay calibración)
         cal=st.session_state.get("cal_result")
         if cal is not None:
             st.markdown("---"); slbl("Cuantificación")
@@ -997,28 +962,32 @@ if pagina=="Análisis":
                 concs=st.session_state["cal_concs"]; sigs=st.session_state["cal_sigs"]; ch=st.session_state["selected_signal"]
                 unit=st.session_state.get("cal_unit","mg/L"); lod=st.session_state.get("cal_lod",np.nan); loq=st.session_state.get("cal_loq",np.nan)
                 cal_png=cal_to_png(cal,concs,sigs,ch,"Fenólicos totales",unit,lod,loq)
-            else: cal_png=None
-            try:
-                # Generar mapa de placa para el PDF (si es microplaca)
-plate_grid_fig = None
-if st.session_state.get("device_type","") == "Microplaca de 96 pocillos":
-    adf = st.session_state.get("assignment_df")
-    if adf is not None:
-        try:
-            plate_grid_fig = plot_plate_grid(adf)
-        except Exception:
+            else:
+                cal_png=None
+            
+            # Generar mapa de placa para el PDF (si es microplaca)
             plate_grid_fig = None
-
-pdf_b=gen_pdf(analyte="Fenólicos totales",method="Folin-Ciocalteu (760 nm)",
-              df_signals=pd.DataFrame(st.session_state.get("ida_df",[])),df_results=df_res,cal=cal,
-              annotated_img=st.session_state.get("annotated_img"),tri_df=st.session_state.get("tri_df"),
-              cal_png_bytes=cal_png,selected_signal=st.session_state.get("selected_signal",""),
-              unit=st.session_state.get("cal_unit","mg/L"),ida=ida_val,inversion=inverted,
-              plate_grid_fig=plate_grid_fig)
-                b64=base64.b64encode(pdf_b).decode(); fname=f"Elementa_v1_{sanitize_filename('Fenólicos_totales')}_{now_mx():%Y%m%d_%H%M}.pdf"
+            if st.session_state.get("device_type","") == "Microplaca de 96 pocillos":
+                adf = st.session_state.get("assignment_df")
+                if adf is not None:
+                    try:
+                        plate_grid_fig = plot_plate_grid(adf)
+                    except Exception:
+                        plate_grid_fig = None
+            
+            try:
+                pdf_b=gen_pdf(analyte="Fenólicos totales",method="Folin-Ciocalteu (760 nm)",
+                              df_signals=pd.DataFrame(st.session_state.get("ida_df",[])),df_results=df_res,cal=cal,
+                              annotated_img=st.session_state.get("annotated_img"),tri_df=st.session_state.get("tri_df"),
+                              cal_png_bytes=cal_png,selected_signal=st.session_state.get("selected_signal",""),
+                              unit=st.session_state.get("cal_unit","mg/L"),ida=ida_val,inversion=inverted,
+                              plate_grid_fig=plate_grid_fig)
+                b64=base64.b64encode(pdf_b).decode()
+                fname=f"Elementa_v1_{sanitize_filename('Fenólicos_totales')}_{now_mx():%Y%m%d_%H%M}.pdf"
                 st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{fname}" style="background:{ACCENT};color:white;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;">Descargar PDF</a>',unsafe_allow_html=True)
                 okbox("PDF generado.")
-            except Exception as e: st.error(f"Error: {e}")
+            except Exception as e:
+                st.error(f"Error: {e}")
         footer()
 
 # ══════════════════════════════════════════════════════════════════════════════
