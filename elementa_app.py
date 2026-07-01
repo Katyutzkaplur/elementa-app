@@ -32,34 +32,34 @@ def fmt_mx(dt=None):
     return (dt or now_mx()).strftime("%Y-%m-%d  %H:%M:%S  (GMT%z)")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PALETA Y CONFIGURACIÓN (INTERFAZ CLARA CON AZUL AMIGABLE)
+#  PALETA SUAVE Y AMIGABLE (ELEMENTA SOFT)
 # ══════════════════════════════════════════════════════════════════════════════
 
-BG       = "#F1F5F9"
+BG       = "#F0F4F8"
 PRIMARY  = "#FFFFFF"
 CARD     = "#FFFFFF"
 CARD2    = "#E2E8F0"
-ACCENT   = "#3B82F6"
-SUCCESS  = "#16A34A"
+ACCENT   = "#4F46E5"
+SUCCESS  = "#059669"
 DANGER   = "#DC2626"
-WARNING  = "#F59E0B"
-TEXT     = "#0F172A"
+WARNING  = "#D97706"
+TEXT     = "#1E293B"
 MUTED    = "#475569"
 BORDER   = "#CBD5E1"
 PLOT_BG  = "#FFFFFF"
 
 TIPO_COLORS = {
-    "Blanco":           "#0EA5E9",
-    "Estándar":         "#16A34A",
-    "Muestra":          "#2563EB",
+    "Blanco":           "#38BDF8",
+    "Estándar":         "#059669",
+    "Muestra":          "#4F46E5",
     "Control":          "#7C3AED",
     "Adición estándar": "#DB2777",
     "Sin asignar":      "#94A3B8",
 }
 TIPO_BGR = {
-    "Blanco":           (8,  165, 233),
-    "Estándar":         (5,  150, 105),
-    "Muestra":          (37,  99, 235),
+    "Blanco":           (56, 189, 248),
+    "Estándar":         (5, 150, 105),
+    "Muestra":          (79, 70, 229),
     "Control":          (124, 58, 237),
     "Adición estándar": (219, 39, 119),
     "Sin asignar":      (148, 163, 184),
@@ -185,7 +185,7 @@ def check_image_quality(img: np.ndarray) -> dict:
     }
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  STREAMLIT CONFIG + CSS (INTERFAZ CLARA CON TEXTO SIEMPRE VISIBLE)
+#  STREAMLIT CONFIG + CSS (CON NUEVA PALETA)
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(page_title="Elementa v1", page_icon=None, layout="wide",
@@ -215,12 +215,11 @@ h3{{font-size:.9rem;font-weight:600;color:{MUTED};text-transform:uppercase;lette
 .badge-none{{background:{CARD2};color:{MUTED};padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:600;}}
 .footer{{text-align:center;color:{MUTED};font-size:.7rem;padding:28px 0 10px;margin-top:48px;border-top:1px solid {BORDER};}}
 .stButton>button{{background:{ACCENT};color:white !important;border:none;border-radius:6px;padding:9px 22px;font-weight:600;font-size:.84rem;letter-spacing:.02em;font-family:'Inter',sans-serif;transition:background .2s;}}
-.stButton>button:hover{{background:#1D4ED8;}}
+.stButton>button:hover{{background:#4338CA;}}
 .stTabs [data-baseweb="tab-list"]{{gap:2px;border-bottom:1px solid {BORDER};}}
 .stTabs [data-baseweb="tab"]{{background:transparent;color:{MUTED};font-weight:500;font-size:.85rem;padding:10px 20px;border-radius:6px 6px 0 0;}}
 .stTabs [aria-selected="true"]{{background:{CARD} !important;color:{ACCENT} !important;border-bottom:2px solid {ACCENT} !important;}}
 
-/* ═══════ REGLAS ADICIONALES PARA LEGIBILIDAD ═══════ */
 /* Forzar texto oscuro en componentes que no heredan */
 [data-testid="stDataEditor"] div, 
 [data-testid="stDataEditor"] span,
@@ -233,23 +232,9 @@ h3{{font-size:.9rem;font-weight:600;color:{MUTED};text-transform:uppercase;lette
 .stMarkdown, .stMarkdown p, .stMarkdown span {{
     color: {TEXT} !important;
 }}
-/* Asegurar que el sidebar tenga texto oscuro */
 [data-testid="stSidebar"] * {{
     color: {TEXT} !important;
 }}
-/* Mejorar visibilidad de los botones */
-.stButton>button {{
-    background: {ACCENT};
-    color: white !important;
-    border-radius: 6px;
-    font-weight: 600;
-}}
-/* Encabezados de tabs */
-.stTabs [aria-selected="true"] {{
-    color: {ACCENT} !important;
-    border-bottom-color: {ACCENT} !important;
-}}
-/* ════════════════════════════════════════════════════ */
 </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -525,8 +510,8 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
                                      Paragraph, Spacer, Table, TableStyle,
                                      Image as RLImage, HRFlowable, KeepTogether)
     C={"bg":HexColor("#F8FAFC"),"card":HexColor("#FFFFFF"),"card2":HexColor("#E2E8F0"),
-       "acc":HexColor("#2563EB"),"grn":HexColor("#16A34A"),"red":HexColor("#DC2626"),
-       "txt":HexColor("#111827"),"mut":HexColor("#374151"),"brd":HexColor("#CBD5E1"),
+       "acc":HexColor("#4F46E5"),"grn":HexColor("#059669"),"red":HexColor("#DC2626"),
+       "txt":HexColor("#1E293B"),"mut":HexColor("#475569"),"brd":HexColor("#CBD5E1"),
        "nb":HexColor("#F1F5F9"),"nt":HexColor("#0F172A")}
     buf=BytesIO()
     def bg(canvas,doc):
@@ -702,7 +687,7 @@ with st.sidebar:
     st.markdown(f"<p style='color:{MUTED};font-size:.68rem;line-height:1.6;'>Estimaciones colorimétricas digitales. No sustituyen métodos certificados.</p>",unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PESTAÑA ANÁLISIS (CAPTURA, PROCESAMIENTO, CALIBRACIÓN, REPORTE)
+#  ANÁLISIS (CAPTURA, PROCESAMIENTO, CALIBRACIÓN, REPORTE)
 # ══════════════════════════════════════════════════════════════════════════════
 
 if pagina=="Análisis":
