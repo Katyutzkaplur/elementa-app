@@ -1,4 +1,4 @@
- """
+"""
 Elementa v1 — Sistema Analítico Colorimétrico Digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
