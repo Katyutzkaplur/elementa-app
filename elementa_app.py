@@ -1,5 +1,5 @@
 """
-Elementa v1 — Sistema analítico colorimétrico digital
+Elementa v1 — Sistema Analítico Colorimétrico Digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
 Software científico para colorimetría digital basada en imágenes RGB.
@@ -32,7 +32,7 @@ def fmt_mx(dt=None):
     return (dt or now_mx()).strftime("%Y-%m-%d  %H:%M:%S  (GMT%z)")
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PALETA OSCURA ORIGINAL (CON GRID NEGRO)
+#  PALETA OSCURA ORIGINAL
 # ══════════════════════════════════════════════════════════════════════════════
 
 BG       = "#020617"
@@ -48,8 +48,7 @@ MUTED    = "#94A3B8"
 BORDER   = "#334155"
 PLOT_BG  = "#0B1120"
 
-# Los colores para los tipos de muestra se mantienen para la leyenda,
-# pero el grid (draw_rois) usará siempre negro (#000000) para máxima visibilidad.
+# Colores para el overlay (se usarán en draw_rois)
 TIPO_COLORS = {
     "Blanco":           "#0EA5E9",
     "Estándar":         "#059669",
@@ -59,12 +58,12 @@ TIPO_COLORS = {
     "Sin asignar":      "#1E293B",
 }
 TIPO_BGR = {
-    "Blanco":           (8,  165, 233),
-    "Estándar":         (5,  150, 105),
-    "Muestra":          (37,  99, 235),
-    "Control":          (124, 58, 237),
-    "Adición estándar": (219, 39, 119),
-    "Sin asignar":      (30,  41,  59),
+    "Blanco":           (233, 165, 8),
+    "Estándar":         (105, 150, 5),
+    "Muestra":          (235, 99, 37),
+    "Control":          (237, 58, 124),
+    "Adición estándar": (119, 39, 219),
+    "Sin asignar":      (59, 41, 30),
 }
 TIPO_SHORT = {
     "Blanco":"BLANK","Estándar":"STD","Muestra":"SMP",
@@ -187,7 +186,7 @@ def check_image_quality(img: np.ndarray) -> dict:
     }
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  STREAMLIT CONFIG + CSS (MODO OSCURO CON GRID NEGRO)
+#  STREAMLIT CONFIG + CSS (MODO OSCURO)
 # ══════════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(page_title="Elementa v1", page_icon=None, layout="wide",
@@ -269,13 +268,14 @@ def gen_rois_tubes(x0,y0,radius,h,ntubes,dx):
 
 def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
     """
-    Dibuja ROIs sobre la imagen con borde NEGRO para máxima visibilidad.
+    Dibuja ROIs con colores vivos por tipo de muestra.
+    El color se actualiza en tiempo real al cambiar la asignación.
     """
     out = img.copy()
     for roi in rois:
         tipo = (type_map or {}).get(roi["label"], "Sin asignar")
-        # Usamos siempre negro (0,0,0) para el borde del grid
-        bgr = (0, 0, 0)
+        rgb  = TIPO_BGR.get(tipo, (30, 41, 59))
+        bgr  = (rgb[2], rgb[1], rgb[0])
         if "cx" in roi and "cy" in roi and "radius" in roi:
             cx, cy, r = roi["cx"], roi["cy"], roi["radius"]
             cv2.circle(out, (cx, cy), r, bgr, 2)
@@ -303,6 +303,65 @@ def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
             cv2.putText(out, short, (cx2-10, cy2+4),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.3, bgr, 1, cv2.LINE_AA)
     return out
+
+def plot_plate_grid(asgn_df):
+    """
+    Genera un grid tipo Excel (8x12) con las etiquetas de los pocillos,
+    coloreando cada celda según el tipo de muestra asignado.
+    """
+    rl = list("ABCDEFGH")
+    all_rows = sorted(set(r for r in rl if any(r in roi for roi in asgn_df["ROI"])), key=lambda x: rl.index(x))
+    all_cols = sorted(set(int("".join(c for c in roi if c.isdigit())) for roi in asgn_df["ROI"] if any(c.isdigit() for c in roi)))
+    if not all_rows or not all_cols:
+        return go.Figure()
+    
+    tipo_map = dict(zip(asgn_df["ROI"], asgn_df["Tipo"]))
+    
+    z = []
+    txt = []
+    hov = []
+    for rw in all_rows:
+        zr, tr, hr = [], [], []
+        for cl in all_cols:
+            roi = f"{rw}{cl}"
+            tipo = tipo_map.get(roi, "Sin asignar")
+            short = TIPO_SHORT.get(tipo, "--")
+            idx = {"Blanco":1,"Estándar":2,"Muestra":3,"Control":4,"Adición estándar":5}.get(tipo, 0)
+            zr.append(idx)
+            tr.append(f"{short}")
+            hr.append(f"<b>{roi}</b><br>{tipo}")
+        z.append(zr)
+        txt.append(tr)
+        hov.append(hr)
+    
+    colorscale = [
+        [0, "#1E293B"],
+        [0.2, "#0C2540"],
+        [0.4, "#052e16"],
+        [0.6, "#0D2159"],
+        [0.8, "#2D0A3E"],
+        [1.0, "#1e293b"]
+    ]
+    
+    fig = go.Figure(go.Heatmap(
+        z=z, text=txt, texttemplate="%{text}",
+        customdata=hov, hovertemplate="%{customdata}<extra></extra>",
+        colorscale=colorscale, showscale=False,
+        xgap=2, ygap=2, zmin=0, zmax=5,
+        textfont=dict(family="JetBrains Mono", size=8, color=TEXT)
+    ))
+    fig.update_xaxes(tickvals=list(range(len(all_cols))), ticktext=[str(c) for c in all_cols],
+                     side="top", showgrid=False, tickfont=dict(size=9, color=MUTED))
+    fig.update_yaxes(tickvals=list(range(len(all_rows))), ticktext=all_rows,
+                     autorange="reversed", showgrid=False, tickfont=dict(size=9, color=MUTED))
+    fig.update_layout(
+        template="plotly_dark", paper_bgcolor=PLOT_BG, plot_bgcolor=PLOT_BG,
+        font=dict(family="Inter,sans-serif", color=TEXT, size=11),
+        margin=dict(l=52, r=20, t=48, b=48),
+        height=max(220, 50*len(all_rows)+80),
+        title=dict(text="Mapa de placa (grid Excel)", font=dict(size=12, color=TEXT))
+    )
+    return fig
 
 # ─── Extracción completa de señales ──────────────────────────────────────────
 def extract_all_signals(img, rois, circular=True, diam_map=None):
@@ -486,7 +545,57 @@ def plot_residuals(concs,cal,ch):
     return fig
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  REPORTE PDF (MODO OSCURO)
+#  GRÁFICA MATPLOTLIB PARA PDF (CORREGIDO EL PARÁMETRO normalized)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq, normalized=False):
+    try:
+        import matplotlib.pyplot as plt
+        plt.switch_backend("agg")
+        concs=np.asarray(concs,float); sigs=np.asarray(sigs,float)
+        mask=~(np.isnan(concs)|np.isnan(sigs)); concs,sigs=concs[mask],sigs[mask]
+        if len(concs)<2: return None
+        BG2="#0f172a"; CARD2C="#1e293b"; GRN="#4ade80"; BLU="#60a5fa"
+        RED2="#f87171"; ORG="#fb923c"; SUB="#94a3b8"; TXT2="#e2e8f0"
+        fig,ax=plt.subplots(figsize=(7.8,3.8))
+        fig.patch.set_facecolor(BG2); ax.set_facecolor(BG2)
+        ax.scatter(concs,sigs,color=GRN,s=60,zorder=5,edgecolors=BG2,linewidths=1.2,label="Estándares")
+        xmn=float(concs.min())*0.85 if float(concs.min())>0 else 0.0
+        xmx=float(concs.max())*1.15
+        if xmn==xmx: xmn-=0.1; xmx+=0.1
+        xl=np.linspace(xmn,xmx,300)
+        ax.plot(xl,cal["m"]*xl+cal["b"],color=BLU,linewidth=2.2,label="Regresión lineal")
+        y_all=np.concatenate([sigs,cal["m"]*xl+cal["b"]])
+        yb,yt=float(y_all.min()),float(y_all.max()); yp=(yt-yb)*0.04 if yt>yb else 0.01
+        lod_ok=lod is not None and not (isinstance(lod,float) and math.isnan(lod))
+        loq_ok=loq is not None and not (isinstance(loq,float) and math.isnan(loq))
+        if lod_ok: ax.axvline(lod,color=RED2,linestyle=":",linewidth=1.3); ax.text(lod,yb+yp,f"  LOD={lod:.3f}",color=RED2,fontsize=7,va="bottom")
+        if loq_ok: ax.axvline(loq,color=ORG,linestyle=":",linewidth=1.3); ax.text(loq,yb+yp,f"  LOQ={loq:.3f}",color=ORG,fontsize=7,va="bottom")
+        m,b,r2=cal["m"],cal["b"],cal["r2"]; sgn="+" if b>=0 else "-"
+        title_txt = f"y={m:.4f}x {sgn} {abs(b):.4f}  |  R²={r2:.5f}"
+        if normalized:
+            title_txt += " (señal normalizada)"
+        ax.text(0.03,0.97,title_txt,
+                transform=ax.transAxes,fontsize=8.5,color=GRN,va="top",ha="left",
+                bbox=dict(facecolor=CARD2C,edgecolor="#166534",boxstyle="round,pad=0.35"))
+        ax.set_xlabel(f"Concentración ({unit})",color=SUB,fontsize=9)
+        ax.set_ylabel("Absorbancia digital",color=SUB,fontsize=9)
+        ax.set_title(f"Curva de calibración — {analyte} | Canal: {ch}",color=TXT2,fontsize=10,pad=8)
+        ax.tick_params(colors=SUB,labelsize=8)
+        for sp in ax.spines.values(): sp.set_edgecolor("#334155")
+        leg=ax.legend(facecolor=CARD2C,edgecolor="#334155",fontsize=8)
+        for t in leg.get_texts(): t.set_color(TXT2)
+        ax.grid(True,color=CARD2C,linewidth=0.5,linestyle="--",zorder=0)
+        plt.tight_layout(pad=0.8)
+        buf=BytesIO()
+        plt.savefig(buf,format="png",dpi=160,bbox_inches="tight",facecolor=BG2,edgecolor="none")
+        buf.seek(0); data=buf.read(); plt.close(fig)
+        return data
+    except Exception:
+        return None
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  REPORTE PDF (CORREGIDO EL LLAMADO A cal_to_png)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
@@ -888,6 +997,13 @@ if pagina=="Análisis":
             st.error(f"Error al dibujar ROIs: {e}")
             st.image(img, use_container_width=True)
 
+        # Grid tipo Excel para microplaca
+        dev = st.session_state.get("device_type", "")
+        if dev == "Microplaca de 96 pocillos":
+            st.markdown("### Mapa de placa")
+            fig_grid = plot_plate_grid(edited)
+            st.plotly_chart(fig_grid, use_container_width=True, key="plate_grid")
+
         footer()
 
     # ── CALIBRACIÓN (BARRIDO COMPLETO E IDA) ──────────────────────────────
@@ -1082,7 +1198,8 @@ if pagina=="Análisis":
                 unit = st.session_state.get("cal_unit","mg/L")
                 lod = st.session_state.get("cal_lod", np.nan)
                 loq = st.session_state.get("cal_loq", np.nan)
-                cal_png = cal_to_png(cal, concs, sigs, ch, "Fenólicos totales", unit, lod, loq)
+                # CORREGIDO: se agregó el argumento normalized=False
+                cal_png = cal_to_png(cal, concs, sigs, ch, "Fenólicos totales", unit, lod, loq, normalized=False)
             else:
                 cal_png = None
             try:
