@@ -243,7 +243,6 @@ def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
     return out
 
 def plot_plate_grid(asgn_df):
-    """Grid tipo Excel con concentraciones visibles en el hover."""
     rl = list("ABCDEFGH")
     all_rows = sorted(set(r for r in rl if any(r in roi for roi in asgn_df["ROI"])), key=lambda x: rl.index(x))
     all_cols = sorted(set(int("".join(c for c in roi if c.isdigit())) for roi in asgn_df["ROI"] if any(c.isdigit() for c in roi)))
@@ -291,7 +290,6 @@ def plot_plate_grid(asgn_df):
     return fig
 
 def plot_r2_bars(ida_df):
-    """Gráfica de barras comparativa de R² para todas las señales evaluadas."""
     if ida_df is None or ida_df.empty:
         return go.Figure()
     df = pd.DataFrame(ida_df)
@@ -553,7 +551,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         story.append(Spacer(1,8))
     if df_signals is not None and not df_signals.empty:
         story.append(Paragraph("B) Tabla de barrido de señales digitales", h2s))
-        story.append(note("La selección se basó en el IDA. IDA = 0.30·R²_norm + 0.25·(1-Sy/x_norm) + 0.15·|m|_norm + 0.10·(1-LOD_norm) + 0.10·(1-LOQ_norm) + 0.10·(1-CV_norm)"))
+        story.append(note("La selección se basó en el IDA."))
         cols_show = ["signal","type","r2","sy_x","slope","lod","loq","IDA","inverted"]
         available = [c for c in cols_show if c in df_signals.columns]
         td = [available] + [[str(v) for v in row] for _,row in df_signals[available].iterrows()]
@@ -714,7 +712,7 @@ if pagina=="Análisis":
                 elif is_plate:
                     diam=st.session_state.get("global_diam",60); n_rows=st.number_input("Filas",1,8,8,1,key="prows"); n_cols=st.number_input("Columnas",1,12,12,1,key="pcols")
                     auto_center = st.checkbox("Centrar grid automáticamente en la imagen", value=st.session_state.get("plate_auto_center", True), key="plate_auto_center")
-                   st.session_state.plate_auto_center = auto_center
+                    st.session_state.plate_auto_center = auto_center
                     if auto_center:
                         dx_val, dy_val = 141, 143
                         grid_w = dx_val * (int(n_cols) - 1) + diam
