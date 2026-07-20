@@ -185,6 +185,11 @@ h3{{font-size:.9rem;font-weight:600;color:{MUTED};text-transform:uppercase;lette
 .stTabs [data-baseweb="tab-list"]{{gap:2px;border-bottom:1px solid {BORDER};}}
 .stTabs [data-baseweb="tab"]{{background:transparent;color:{MUTED};font-weight:500;font-size:.85rem;padding:10px 20px;border-radius:6px 6px 0 0;}}
 .stTabs [aria-selected="true"]{{background:{CARD} !important;color:{TEXT} !important;border-bottom:2px solid {ACCENT} !important;}}
+/* Evitar que los botones de descarga disparen rerun */
+.stDownloadButton button {{
+    background: {SUCCESS} !important;
+    color: white !important;
+}}
 </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -888,13 +893,12 @@ if pagina=="Análisis":
             st.plotly_chart(plot_plate_grid(edited), use_container_width=True, key="plate_grid")
         footer()
 
-    # ── CALIBRACIÓN (CON ECUACIÓN MANUAL Y ADICIÓN DE ESTÁNDAR) ────────────
+    # ── CALIBRACIÓN ────────────────────────────────────────────────────────
     with tab_cal:
         rois=st.session_state.get("rois",[]); img=st.session_state.get("image"); adf=st.session_state.get("assignment_df")
         if not rois or img is None or adf is None: wbox("Complete Captura y Procesamiento."); footer(); st.stop()
         blank=st.session_state.get("blank_label")
 
-        # Selector de método de calibración
         cal_method = st.radio("Método de calibración", 
                               ["Calibración externa (estándares)", "Ecuación manual", "Adición de estándar"],
                               horizontal=True)
@@ -942,15 +946,16 @@ if pagina=="Análisis":
                                         ida_inv.update({"signal":col,"type":"Absorbancia invertida","m_orig":cal["m"],"m_final":cal_inv["m"],"inverted":True})
                                         ida_list.append(ida_inv); all_signals[col+"_inv"]={"cal":cal_inv,"sigs":sigs_inv,"lod":lod_inv,"loq":loq_inv,"sy_x":sy_x_inv,"inverted":True}
                         if ida_list:
-                            ida_norm=normalize_ida_params(ida_list); best=max(ida_norm,key=lambda x:x["IDA"])
-                            best_signal=best["signal"]+("_inv" if best["inverted"] else "")
-                            st.session_state.update({"ida_df":ida_norm,"all_signals":all_signals,"best_signal":best_signal,"selected_signal":best_signal,
-                                                      "cal_result":all_signals[best_signal]["cal"],
-                                                      "cal_concs":concs,"cal_sigs":all_signals[best_signal]["sigs"],
-                                                      "cal_lod":all_signals[best_signal]["lod"],"cal_loq":all_signals[best_signal]["loq"],
-                                                      "cal_sy_x":all_signals[best_signal]["sy_x"],"cal_inverted":all_signals[best_signal]["inverted"],
-                                                      "cal_ida":best["IDA"]})
-                            st.success(f"Mejor señal: **{best_signal}** (IDA={best['IDA']:.1f})")
+                            ida_norm=normalize_ida_params(ida_list)
+                            best=max(ida_norm,key=lambda x:x["IDA"])
+                            best_signal_default=best["signal"]+("_inv" if best["inverted"] else "")
+                            st.session_state.update({"ida_df":ida_norm,"all_signals":all_signals,
+                                                      "best_signal":best_signal_default,
+                                                      "cal_concs":concs})
+                            # Por defecto, seleccionar el mejor canal, pero permitir cambio manual
+                            if st.session_state.get("selected_signal") is None or st.session_state.get("selected_signal") not in all_signals:
+                                st.session_state["selected_signal"] = best_signal_default
+                            st.success(f"Barrido completado. Mejor señal por IDA: **{best_signal_default}** (IDA={best['IDA']:.1f})")
                         else:
                             st.warning("No se pudo calcular ninguna regresión.")
                     else:
@@ -958,6 +963,42 @@ if pagina=="Análisis":
                         st.session_state["ida_df"]=None
                         st.session_state["all_signals"]={}
                         st.session_state["cal_result"]=None
+
+        # ─── SELECCIÓN MANUAL DEL CANAL (COMÚN PARA CALIBRACIÓN EXTERNA) ───
+        all_signals = st.session_state.get("all_signals", {})
+        if all_signals:
+            st.markdown("---")
+            st.markdown("### 🎯 Selección del canal para cuantificación")
+            signal_options = list(all_signals.keys())
+            default_idx = signal_options.index(st.session_state.get("selected_signal", signal_options[0])) if st.session_state.get("selected_signal") in signal_options else 0
+            sel_ch = st.selectbox(
+                "Canal seleccionado:",
+                options=signal_options,
+                index=default_idx,
+                format_func=lambda x: f"{x} (R²={all_signals[x]['cal']['r2']:.4f}, IDA={next((item['IDA'] for item in st.session_state.get('ida_df',[]) if item['signal']+('_inv' if item['inverted'] else '')==x), 'N/A')})" if st.session_state.get("ida_df") else x,
+                key="channel_selector"
+            )
+            if sel_ch != st.session_state.get("selected_signal"):
+                st.session_state["selected_signal"] = sel_ch
+            # Actualizar cal_result con la selección actual
+            info = all_signals[sel_ch]
+            st.session_state.update({
+                "cal_result": info["cal"],
+                "cal_sigs": info["sigs"],
+                "cal_lod": info["lod"],
+                "cal_loq": info["loq"],
+                "cal_sy_x": info["sy_x"],
+                "cal_inverted": info["inverted"]
+            })
+            cal = info["cal"]
+            concs = st.session_state.get("cal_concs")
+            if concs is not None:
+                fig = plot_cal(concs, info["sigs"], cal, sel_ch, "Fenólicos totales", 
+                               st.session_state.get("cal_unit","mg/L"), info["lod"], info["loq"],
+                               next((item["IDA"] for item in st.session_state.get("ida_df",[]) if item["signal"]+("_inv" if item["inverted"] else "")==sel_ch), None))
+                st.plotly_chart(fig, use_container_width=True)
+                slope_msg, slope_col = interpret_slope(cal["m"])
+                st.markdown(f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};padding:10px;">{slope_msg}</div>', unsafe_allow_html=True)
 
         elif cal_method == "Ecuación manual":
             st.markdown("### Ingrese la ecuación de la curva")
@@ -1008,13 +1049,15 @@ if pagina=="Análisis":
                 else:
                     st.error("No se pudo calcular la regresión. Verifique los datos.")
 
-        # Mostrar resultados (común a todos los métodos)
+        # ─── TABLA DE DATOS EXTRAÍDOS (SIEMPRE VISIBLE SI EXISTE) ──────────
         df_signals=st.session_state.get("df_signals")
         if df_signals is not None:
             st.markdown("### 📊 Datos extraídos")
             st.dataframe(df_signals, use_container_width=True)
-            st.download_button("Descargar datos crudos CSV", df_signals.to_csv(index=False).encode(), "elementa_datos_crudos.csv", "text/csv")
+            csv_data = df_signals.to_csv(index=False).encode('utf-8')
+            st.download_button("⬇ Descargar datos crudos CSV", csv_data, "elementa_datos_crudos.csv", "text/csv", key="dl_crudos")
 
+        # ─── TABLA COMPARATIVA (SI EXISTE IDA) ────────────────────────────
         ida_df=st.session_state.get("ida_df")
         if ida_df is not None:
             st.markdown("### Comparación gráfica de R²")
@@ -1025,20 +1068,19 @@ if pagina=="Análisis":
             display_cols=["signal","type","m_orig","m_final","r2","sy_x","lod","loq","IDA","inverted"]
             st.dataframe(pd.DataFrame(ida_df)[display_cols].round(4), use_container_width=True)
 
-        # Cuantificación (para todos los métodos excepto adición que ya da el resultado)
+        # ─── CUANTIFICACIÓN ───────────────────────────────────────────────
         cal = st.session_state.get("cal_result")
         if cal is not None and cal_method != "Adición de estándar":
             st.markdown("---"); slbl("Cuantificación")
             if st.button("Calcular concentraciones", key="btn_q"):
                 dm = st.session_state.get("df_merged")
                 if dm is None:
-                    st.error("Ejecute primero la extracción de señales.")
+                    st.error("Ejecute primero la extracción de señales o cargue los datos.")
                 else:
                     m, b = cal["m"], cal["b"]
                     samples = dm[dm["Tipo"] == "Muestra"].copy()
                     res = []
                     for _, row in samples.iterrows():
-                        # Usar la absorbancia de la señal seleccionada
                         ch = st.session_state.get("selected_signal", "G_norm")
                         prefix = "A_inv_" if st.session_state.get("cal_inverted") else "A_"
                         ac = f"{prefix}{ch.replace('_inv', '')}"
@@ -1060,7 +1102,8 @@ if pagina=="Análisis":
                     df_res = pd.DataFrame(res)
                     st.session_state["df_results"] = df_res
                     st.dataframe(df_res, use_container_width=True, hide_index=True)
-                    st.download_button("Descargar CSV", df_res.to_csv(index=False).encode(), "elementa_resultados.csv", "text/csv")
+                    csv_res = df_res.to_csv(index=False).encode('utf-8')
+                    st.download_button("⬇ Descargar resultados CSV", csv_res, "elementa_resultados.csv", "text/csv", key="dl_res")
         footer()
 
     # ── REPORTE ────────────────────────────────────────────────────────────
@@ -1111,7 +1154,7 @@ elif pagina=="Tutorial":
     st.markdown("<h1>Guía de inicio rápido</h1>",unsafe_allow_html=True)
     steps=[("Paso 1","Prepare estándares y blanco."),("Paso 2","Capture imagen PNG con iluminación controlada."),
            ("Paso 3","Defina ROIs sobre pocillos/tubos."),("Paso 4","Asigne tipos y concentraciones."),
-           ("Paso 5","Ejecute barrido de señales o ingrese ecuación manual."),("Paso 6","Cuantifique y exporte el PDF.")]
+           ("Paso 5","Seleccione el canal deseado o use el recomendado por IDA."),("Paso 6","Cuantifique y exporte el PDF.")]
     for t,c in steps:
         with st.expander(t,expanded=False): st.markdown(c)
     footer()
