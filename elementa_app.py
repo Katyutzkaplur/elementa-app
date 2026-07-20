@@ -290,7 +290,6 @@ def plot_plate_grid(asgn_df):
     return fig
 
 def plot_r2_bars(ida_df):
-    """Gráfica de barras comparativa de R² para todas las señales evaluadas."""
     if ida_df is None:
         return go.Figure()
     if isinstance(ida_df, list):
@@ -496,7 +495,7 @@ def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
     except: return None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  REPORTE PDF (CON MAPA DE PLACA COMO TABLA NATIVA)
+#  REPORTE PDF
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
@@ -618,14 +617,12 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6)]))
     story.append(av); story.append(Spacer(1,12))
     
-    # A) Imagen procesada
     if annotated_img is not None:
-        story.append(Paragraph("A) Imagen procesada — regiones de interés", h2s))
+        story.append(Paragraph("A) Imagen procesada", h2s))
         pil=Image.fromarray(annotated_img); ib=BytesIO(); pil.save(ib,"PNG"); ib.seek(0)
         story.append(RLImage(ib,width=5.5*inch,height=3.5*inch,kind="proportional"))
         story.append(Spacer(1,8))
     
-    # B) Tabla de barrido
     if df_signals is not None and not df_signals.empty:
         story.append(Paragraph("B) Tabla de barrido de señales digitales", h2s))
         story.append(note("La selección se basó en el IDA."))
@@ -646,15 +643,13 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         story.append(dtbl(td, [col_w]*len(available), C["grn"]))
         story.append(Spacer(1,10))
     
-    # C) Curva de calibración
     if cal and cal_png_bytes:
-        story.append(Paragraph("C) Curva de calibración final optimizada", h2s))
+        story.append(Paragraph("C) Curva de calibración final", h2s))
         story.append(RLImage(BytesIO(cal_png_bytes),width=5.8*inch,height=3.2*inch))
         txt = f"Señal seleccionada: {selected_signal}."
         if inversion: txt += " Se aplicó inversión de señal."
         story.append(note(txt)); story.append(Spacer(1,8))
     
-    # D) Resumen analítico
     if cal:
         story.append(Paragraph("D) Resumen analítico", h2s))
         lod=cal.get("LOD",float("nan")); loq=cal.get("LOQ",float("nan"))
@@ -672,21 +667,18 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         ]
         story.append(dtbl(summary_data,[2.5*inch,4.8*inch],C["grn"])); story.append(Spacer(1,10))
     
-    # Triplicados
     if tri_df is not None and not tri_df.empty:
         story.append(Paragraph("Estadísticas de triplicados", h2s))
         cols=list(tri_df.columns); td2=[cols]+[[str(v) for v in row] for _,row in tri_df.iterrows()]
         cw2=[doc.width/len(cols)]*len(cols)
         story.append(dtbl(td2,cw2,C["grn"])); story.append(Spacer(1,10))
     
-    # E) Resultados
     if df_results is not None and not df_results.empty:
         story.append(Paragraph("E) Resultados de cuantificación", h2s))
         cols=list(df_results.columns); td3=[cols]+[[f"{v:.3f}" if isinstance(v,float) else str(v) for v in row] for _,row in df_results.iterrows()]
         cw3=[doc.width/len(cols)]*len(cols)
         story.append(dtbl(td3,cw3)); story.append(Spacer(1,10))
     
-    # F) Mapa de placa
     if assignment_df is not None and not assignment_df.empty:
         story.append(Paragraph("F) Mapa de placa", h2s))
         plate_table = build_plate_grid_table(assignment_df)
@@ -896,73 +888,127 @@ if pagina=="Análisis":
             st.plotly_chart(plot_plate_grid(edited), use_container_width=True, key="plate_grid")
         footer()
 
-    # ── CALIBRACIÓN (barrido sin necesidad de estándares) ──────────────────
+    # ── CALIBRACIÓN (CON ECUACIÓN MANUAL Y ADICIÓN DE ESTÁNDAR) ────────────
     with tab_cal:
         rois=st.session_state.get("rois",[]); img=st.session_state.get("image"); adf=st.session_state.get("assignment_df")
         if not rois or img is None or adf is None: wbox("Complete Captura y Procesamiento."); footer(); st.stop()
         blank=st.session_state.get("blank_label")
 
-        with st.expander("ℹ️ ¿Qué es el IDA?", expanded=False):
-            st.markdown("**Índice de Desempeño Analítico (IDA)**")
-            st.markdown("Puntuación de 0 a 100 que combina múltiples parámetros de calidad analítica.")
-            st.latex(r"\text{IDA} = 0.30 R^2_{\text{norm}} + 0.25(1-S_{y/x,\text{norm}}) + 0.15|m|_{\text{norm}} + 0.10(1-\text{LOD}_{\text{norm}}) + 0.10(1-\text{LOQ}_{\text{norm}}) + 0.10(1-\text{CV}_{\text{norm}})")
-            st.markdown("Solo se calcula cuando hay al menos 2 estándares con concentraciones diferentes.")
+        # Selector de método de calibración
+        cal_method = st.radio("Método de calibración", 
+                              ["Calibración externa (estándares)", "Ecuación manual", "Adición de estándar"],
+                              horizontal=True)
 
-        if st.button("Extraer señales y barrer",key="btn_cal"):
-            with st.spinner("Procesando todas las señales digitales..."):
-                df_signals=extract_all_signals(img,rois,circular=st.session_state.get("use_circular",False))
-                blank_row=df_signals[df_signals["ROI"]==blank] if blank else None
-                df_signals=add_euclidean_distance(df_signals,blank_row)
-                signal_columns=["R","G","B","R_norm","G_norm","B_norm","R+G","R+B","G+B","R+G+B",
-                                "R_norm+G_norm","R_norm+B_norm","G_norm+B_norm","H","S","V","L","a","b_lab","ED","ED_norm"]
-                df_signals=compute_absorbances(df_signals,blank,signal_columns)
-                df_merged=df_signals.merge(adf[["ROI","Tipo","Nombre","Concentracion","Unidad","Analito","Factor_dil"]],on="ROI",how="left")
-                
-                st.session_state["df_signals"]=df_signals
-                st.session_state["df_merged"]=df_merged
-                
-                std=df_merged[df_merged["Tipo"]=="Estándar"]
-                if len(std)>=2 and "Concentracion" in std.columns and len(std["Concentracion"].dropna().unique())>=2:
-                    concs=std["Concentracion"].values.astype(float)
-                    ida_list,all_signals=[],{}
-                    for col in signal_columns:
-                        ac,ac_inv=f"A_{col}",f"A_inv_{col}"
-                        if ac not in df_merged.columns: continue
-                        sigs=std[ac].dropna().values
-                        if len(sigs)>=2:
-                            cal=fit_line(concs,sigs)
-                            if cal:
-                                sy_x=calc_sy_x(cal); lod,loq=calc_lod_loq(cal,sy_x)
-                                ida_raw=compute_ida(cal["r2"],sy_x,abs(cal["m"]),lod,loq)
-                                ida_raw.update({"signal":col,"type":"Absorbancia clásica","m_orig":cal["m"],"m_final":cal["m"],"inverted":False})
-                                ida_list.append(ida_raw); all_signals[col]={"cal":cal,"sigs":sigs,"lod":lod,"loq":loq,"sy_x":sy_x,"inverted":False}
-                        if cal and cal["m"]<0 and ac_inv in df_merged.columns:
-                            sigs_inv=std[ac_inv].dropna().values
-                            if len(sigs_inv)>=2:
-                                cal_inv=fit_line(concs,sigs_inv)
-                                if cal_inv:
-                                    sy_x_inv=calc_sy_x(cal_inv); lod_inv,loq_inv=calc_lod_loq(cal_inv,sy_x_inv)
-                                    ida_inv=compute_ida(cal_inv["r2"],sy_x_inv,abs(cal_inv["m"]),lod_inv,loq_inv)
-                                    ida_inv.update({"signal":col,"type":"Absorbancia invertida","m_orig":cal["m"],"m_final":cal_inv["m"],"inverted":True})
-                                    ida_list.append(ida_inv); all_signals[col+"_inv"]={"cal":cal_inv,"sigs":sigs_inv,"lod":lod_inv,"loq":loq_inv,"sy_x":sy_x_inv,"inverted":True}
-                    if ida_list:
-                        ida_norm=normalize_ida_params(ida_list); best=max(ida_norm,key=lambda x:x["IDA"])
-                        best_signal=best["signal"]+("_inv" if best["inverted"] else "")
-                        st.session_state.update({"ida_df":ida_norm,"all_signals":all_signals,"best_signal":best_signal,"selected_signal":best_signal,
-                                                  "cal_result":all_signals[best_signal]["cal"],
-                                                  "cal_concs":concs,"cal_sigs":all_signals[best_signal]["sigs"],
-                                                  "cal_lod":all_signals[best_signal]["lod"],"cal_loq":all_signals[best_signal]["loq"],
-                                                  "cal_sy_x":all_signals[best_signal]["sy_x"],"cal_inverted":all_signals[best_signal]["inverted"],
-                                                  "cal_ida":best["IDA"]})
-                        st.success(f"Mejor señal: **{best_signal}** (IDA={best['IDA']:.1f})")
+        if cal_method == "Calibración externa (estándares)":
+            with st.expander("ℹ️ ¿Qué es el IDA?", expanded=False):
+                st.markdown("**Índice de Desempeño Analítico (IDA)**")
+                st.latex(r"\text{IDA} = 0.30 R^2_{\text{norm}} + 0.25(1-S_{y/x,\text{norm}}) + 0.15|m|_{\text{norm}} + 0.10(1-\text{LOD}_{\text{norm}}) + 0.10(1-\text{LOQ}_{\text{norm}}) + 0.10(1-\text{CV}_{\text{norm}})")
+
+            if st.button("Extraer señales y barrer",key="btn_cal"):
+                with st.spinner("Procesando todas las señales digitales..."):
+                    df_signals=extract_all_signals(img,rois,circular=st.session_state.get("use_circular",False))
+                    blank_row=df_signals[df_signals["ROI"]==blank] if blank else None
+                    df_signals=add_euclidean_distance(df_signals,blank_row)
+                    signal_columns=["R","G","B","R_norm","G_norm","B_norm","R+G","R+B","G+B","R+G+B",
+                                    "R_norm+G_norm","R_norm+B_norm","G_norm+B_norm","H","S","V","L","a","b_lab","ED","ED_norm"]
+                    df_signals=compute_absorbances(df_signals,blank,signal_columns)
+                    df_merged=df_signals.merge(adf[["ROI","Tipo","Nombre","Concentracion","Unidad","Analito","Factor_dil"]],on="ROI",how="left")
+                    
+                    st.session_state["df_signals"]=df_signals
+                    st.session_state["df_merged"]=df_merged
+                    
+                    std=df_merged[df_merged["Tipo"]=="Estándar"]
+                    if len(std)>=2 and "Concentracion" in std.columns and len(std["Concentracion"].dropna().unique())>=2:
+                        concs=std["Concentracion"].values.astype(float)
+                        ida_list,all_signals=[],{}
+                        for col in signal_columns:
+                            ac,ac_inv=f"A_{col}",f"A_inv_{col}"
+                            if ac not in df_merged.columns: continue
+                            sigs=std[ac].dropna().values
+                            if len(sigs)>=2:
+                                cal=fit_line(concs,sigs)
+                                if cal:
+                                    sy_x=calc_sy_x(cal); lod,loq=calc_lod_loq(cal,sy_x)
+                                    ida_raw=compute_ida(cal["r2"],sy_x,abs(cal["m"]),lod,loq)
+                                    ida_raw.update({"signal":col,"type":"Absorbancia clásica","m_orig":cal["m"],"m_final":cal["m"],"inverted":False})
+                                    ida_list.append(ida_raw); all_signals[col]={"cal":cal,"sigs":sigs,"lod":lod,"loq":loq,"sy_x":sy_x,"inverted":False}
+                            if cal and cal["m"]<0 and ac_inv in df_merged.columns:
+                                sigs_inv=std[ac_inv].dropna().values
+                                if len(sigs_inv)>=2:
+                                    cal_inv=fit_line(concs,sigs_inv)
+                                    if cal_inv:
+                                        sy_x_inv=calc_sy_x(cal_inv); lod_inv,loq_inv=calc_lod_loq(cal_inv,sy_x_inv)
+                                        ida_inv=compute_ida(cal_inv["r2"],sy_x_inv,abs(cal_inv["m"]),lod_inv,loq_inv)
+                                        ida_inv.update({"signal":col,"type":"Absorbancia invertida","m_orig":cal["m"],"m_final":cal_inv["m"],"inverted":True})
+                                        ida_list.append(ida_inv); all_signals[col+"_inv"]={"cal":cal_inv,"sigs":sigs_inv,"lod":lod_inv,"loq":loq_inv,"sy_x":sy_x_inv,"inverted":True}
+                        if ida_list:
+                            ida_norm=normalize_ida_params(ida_list); best=max(ida_norm,key=lambda x:x["IDA"])
+                            best_signal=best["signal"]+("_inv" if best["inverted"] else "")
+                            st.session_state.update({"ida_df":ida_norm,"all_signals":all_signals,"best_signal":best_signal,"selected_signal":best_signal,
+                                                      "cal_result":all_signals[best_signal]["cal"],
+                                                      "cal_concs":concs,"cal_sigs":all_signals[best_signal]["sigs"],
+                                                      "cal_lod":all_signals[best_signal]["lod"],"cal_loq":all_signals[best_signal]["loq"],
+                                                      "cal_sy_x":all_signals[best_signal]["sy_x"],"cal_inverted":all_signals[best_signal]["inverted"],
+                                                      "cal_ida":best["IDA"]})
+                            st.success(f"Mejor señal: **{best_signal}** (IDA={best['IDA']:.1f})")
+                        else:
+                            st.warning("No se pudo calcular ninguna regresión.")
                     else:
-                        st.warning("No se pudo calcular ninguna regresión. Revise los datos de los estándares.")
-                else:
-                    st.info("📊 **Barrido de señales completado** (sin calibración).\n\nPara calcular regresiones e IDA, asigne al menos **2 pocillos como 'Estándar'** con **concentraciones diferentes** en la pestaña Procesamiento.")
-                    st.session_state["ida_df"]=None
-                    st.session_state["all_signals"]={}
-                    st.session_state["cal_result"]=None
+                        st.info("📊 **Barrido de señales completado** (sin calibración).")
+                        st.session_state["ida_df"]=None
+                        st.session_state["all_signals"]={}
+                        st.session_state["cal_result"]=None
 
+        elif cal_method == "Ecuación manual":
+            st.markdown("### Ingrese la ecuación de la curva")
+            col1, col2 = st.columns(2)
+            with col1:
+                manual_m = st.number_input("Pendiente (m)", value=0.0, step=0.0001, format="%.4f")
+            with col2:
+                manual_b = st.number_input("Intercepto (b)", value=0.0, step=0.0001, format="%.4f")
+            
+            if st.button("Usar esta ecuación", key="btn_manual"):
+                st.session_state["cal_result"] = {"m": manual_m, "b": manual_b, "r2": None, "n": None}
+                st.session_state["cal_inverted"] = False
+                st.success(f"Ecuación guardada: A = {manual_m:.4f}·C + {manual_b:.4f}")
+
+        elif cal_method == "Adición de estándar":
+            st.markdown("### Adición de estándar")
+            st.info("Ingrese la concentración añadida y la señal medida para cada punto.")
+            
+            if "sa_data" not in st.session_state:
+                st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(5)]
+            
+            n_points = st.number_input("Número de puntos", 2, 10, len(st.session_state["sa_data"]), key="sa_n")
+            if n_points != len(st.session_state["sa_data"]):
+                st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(n_points)]
+            
+            for i in range(n_points):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.session_state["sa_data"][i]["C_añadida"] = st.number_input(
+                        f"C añadida {i+1}", value=st.session_state["sa_data"][i]["C_añadida"], step=0.001, format="%.4f", key=f"sa_c_{i}"
+                    )
+                with col_b:
+                    st.session_state["sa_data"][i]["Señal"] = st.number_input(
+                        f"Señal {i+1}", value=st.session_state["sa_data"][i]["Señal"], step=0.0001, format="%.5f", key=f"sa_s_{i}"
+                    )
+            
+            if st.button("Calcular por adición de estándar", key="btn_sa"):
+                added = np.array([d["C_añadida"] for d in st.session_state["sa_data"]], dtype=float)
+                sigs = np.array([d["Señal"] for d in st.session_state["sa_data"]], dtype=float)
+                cal = fit_line(added, sigs)
+                if cal and abs(cal["m"]) > 1e-12:
+                    xi = -cal["b"] / cal["m"]
+                    cal["xi"] = xi
+                    cal["c_sample"] = abs(xi)
+                    st.session_state["cal_result"] = cal
+                    st.session_state["cal_inverted"] = False
+                    st.success(f"Concentración estimada: **{abs(xi):.4f}**")
+                else:
+                    st.error("No se pudo calcular la regresión. Verifique los datos.")
+
+        # Mostrar resultados (común a todos los métodos)
         df_signals=st.session_state.get("df_signals")
         if df_signals is not None:
             st.markdown("### 📊 Datos extraídos")
@@ -978,45 +1024,43 @@ if pagina=="Análisis":
             st.markdown("### Tabla comparativa")
             display_cols=["signal","type","m_orig","m_final","r2","sy_x","lod","loq","IDA","inverted"]
             st.dataframe(pd.DataFrame(ida_df)[display_cols].round(4), use_container_width=True)
-            all_signals=st.session_state.get("all_signals",{})
-            if all_signals:
-                signal_options=list(all_signals.keys())
-                sel_manual=st.selectbox("Seleccionar manualmente",options=signal_options,
-                                        index=signal_options.index(st.session_state.get("selected_signal",signal_options[0])))
-                if sel_manual!=st.session_state.get("selected_signal"):
-                    st.session_state["selected_signal"]=sel_manual; info=all_signals[sel_manual]
-                    st.session_state.update({"cal_result":info["cal"],"cal_sigs":info["sigs"],"cal_lod":info["lod"],"cal_loq":info["loq"],"cal_sy_x":info["sy_x"],"cal_inverted":info["inverted"]})
-                cal=st.session_state.get("cal_result")
-                if cal:
-                    concs=st.session_state["cal_concs"]; sigs=st.session_state["cal_sigs"]; ch=st.session_state["selected_signal"]
-                    unit=st.session_state.get("cal_unit","mg/L"); lod=st.session_state.get("cal_lod",np.nan); loq=st.session_state.get("cal_loq",np.nan)
-                    fig=plot_cal(concs,sigs,cal,ch,"Fenólicos totales",unit,lod,loq,st.session_state.get("cal_ida"))
-                    st.plotly_chart(fig, use_container_width=True)
-                    slope_msg,slope_col=interpret_slope(cal["m"])
-                    st.markdown(f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};padding:10px;">{slope_msg}</div>',unsafe_allow_html=True)
 
-        cal=st.session_state.get("cal_result")
-        if cal is not None:
+        # Cuantificación (para todos los métodos excepto adición que ya da el resultado)
+        cal = st.session_state.get("cal_result")
+        if cal is not None and cal_method != "Adición de estándar":
             st.markdown("---"); slbl("Cuantificación")
-            if st.button("Calcular concentraciones",key="btn_q"):
-                dm=st.session_state.get("df_merged"); ch=st.session_state.get("selected_signal","G_norm")
-                prefix="A_inv_" if st.session_state.get("cal_inverted") else "A_"; ac=f"{prefix}{ch.replace('_inv','')}"
-                if dm is None: st.error("Ejecute el barrido primero.")
+            if st.button("Calcular concentraciones", key="btn_q"):
+                dm = st.session_state.get("df_merged")
+                if dm is None:
+                    st.error("Ejecute primero la extracción de señales.")
                 else:
-                    m,b=cal["m"],cal["b"]
-                    samples=dm[dm["Tipo"]=="Muestra"].copy(); res=[]
-                    for _,row in samples.iterrows():
-                        a=row.get(ac,float("nan")); dil=float(row.get("Factor_dil",1) or 1)
-                        c_r=(a-b)/abs(m) if not math.isnan(a) and abs(m)>1e-12 else float("nan")
-                        c_c=c_r*dil if not math.isnan(c_r) else float("nan")
-                        res.append({"Muestra":str(row.get("Nombre","")) or row["ROI"],"ROI":row["ROI"],
-                                    "Señal":ch,"A_digital":round(a,4) if not math.isnan(a) else None,
-                                    "Conc_calc":round(c_r,3) if not math.isnan(c_r) else None,
-                                    "Factor_dil":dil,"Conc_corregida":round(c_c,3) if not math.isnan(c_c) else None,
-                                    "Unidad":str(row.get("Unidad","mg/L")),"Analito":str(row.get("Analito",""))})
-                    df_res=pd.DataFrame(res); st.session_state["df_results"]=df_res
-                    st.dataframe(df_res,use_container_width=True,hide_index=True)
-                    st.download_button("Descargar CSV",df_res.to_csv(index=False).encode(),"elementa_resultados.csv","text/csv")
+                    m, b = cal["m"], cal["b"]
+                    samples = dm[dm["Tipo"] == "Muestra"].copy()
+                    res = []
+                    for _, row in samples.iterrows():
+                        # Usar la absorbancia de la señal seleccionada
+                        ch = st.session_state.get("selected_signal", "G_norm")
+                        prefix = "A_inv_" if st.session_state.get("cal_inverted") else "A_"
+                        ac = f"{prefix}{ch.replace('_inv', '')}"
+                        a = row.get(ac, float("nan"))
+                        dil = float(row.get("Factor_dil", 1) or 1)
+                        c_r = (a - b) / abs(m) if not math.isnan(a) and abs(m) > 1e-12 else float("nan")
+                        c_c = c_r * dil if not math.isnan(c_r) else float("nan")
+                        res.append({
+                            "Muestra": str(row.get("Nombre", "")) or row["ROI"],
+                            "ROI": row["ROI"],
+                            "Señal": ch,
+                            "A_digital": round(a, 4) if not math.isnan(a) else None,
+                            "Conc_calc": round(c_r, 3) if not math.isnan(c_r) else None,
+                            "Factor_dil": dil,
+                            "Conc_corregida": round(c_c, 3) if not math.isnan(c_c) else None,
+                            "Unidad": str(row.get("Unidad", "mg/L")),
+                            "Analito": str(row.get("Analito", ""))
+                        })
+                    df_res = pd.DataFrame(res)
+                    st.session_state["df_results"] = df_res
+                    st.dataframe(df_res, use_container_width=True, hide_index=True)
+                    st.download_button("Descargar CSV", df_res.to_csv(index=False).encode(), "elementa_resultados.csv", "text/csv")
         footer()
 
     # ── REPORTE ────────────────────────────────────────────────────────────
@@ -1026,14 +1070,21 @@ if pagina=="Análisis":
             for _,row in df_res.iterrows():
                 try: st.markdown(f"**{row['Muestra']}** — {row['Analito']}: `{float(row['Conc_corregida']):.3f} {row['Unidad']}`")
                 except: pass
-        else: ibox("Complete la cuantificación en Calibración (requiere estándares).")
+        else: ibox("Complete la cuantificación en Calibración.")
         st.markdown("---"); slbl("Exportar PDF")
         if st.button("Generar PDF",key="btn_pdf"):
             cal=st.session_state.get("cal_result"); ida_val=st.session_state.get("cal_ida"); inverted=st.session_state.get("cal_inverted",False)
             if cal:
-                concs=st.session_state["cal_concs"]; sigs=st.session_state["cal_sigs"]; ch=st.session_state["selected_signal"]
-                unit=st.session_state.get("cal_unit","mg/L"); lod=st.session_state.get("cal_lod",np.nan); loq=st.session_state.get("cal_loq",np.nan)
-                cal_png=cal_to_png(cal,concs,sigs,ch,"Fenólicos totales",unit,lod,loq)
+                concs=st.session_state.get("cal_concs")
+                sigs=st.session_state.get("cal_sigs")
+                ch=st.session_state.get("selected_signal","")
+                unit=st.session_state.get("cal_unit","mg/L")
+                lod=st.session_state.get("cal_lod",np.nan)
+                loq=st.session_state.get("cal_loq",np.nan)
+                if concs is not None and sigs is not None:
+                    cal_png=cal_to_png(cal,concs,sigs,ch,"Fenólicos totales",unit,lod,loq)
+                else:
+                    cal_png=None
             else:
                 cal_png=None
             
@@ -1060,7 +1111,7 @@ elif pagina=="Tutorial":
     st.markdown("<h1>Guía de inicio rápido</h1>",unsafe_allow_html=True)
     steps=[("Paso 1","Prepare estándares y blanco."),("Paso 2","Capture imagen PNG con iluminación controlada."),
            ("Paso 3","Defina ROIs sobre pocillos/tubos."),("Paso 4","Asigne tipos y concentraciones."),
-           ("Paso 5","Ejecute barrido de señales y revise el IDA."),("Paso 6","Cuantifique y exporte el PDF.")]
+           ("Paso 5","Ejecute barrido de señales o ingrese ecuación manual."),("Paso 6","Cuantifique y exporte el PDF.")]
     for t,c in steps:
         with st.expander(t,expanded=False): st.markdown(c)
     footer()
