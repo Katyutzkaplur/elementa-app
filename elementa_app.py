@@ -185,11 +185,7 @@ h3{{font-size:.9rem;font-weight:600;color:{MUTED};text-transform:uppercase;lette
 .stTabs [data-baseweb="tab-list"]{{gap:2px;border-bottom:1px solid {BORDER};}}
 .stTabs [data-baseweb="tab"]{{background:transparent;color:{MUTED};font-weight:500;font-size:.85rem;padding:10px 20px;border-radius:6px 6px 0 0;}}
 .stTabs [aria-selected="true"]{{background:{CARD} !important;color:{TEXT} !important;border-bottom:2px solid {ACCENT} !important;}}
-/* Evitar que los botones de descarga disparen rerun */
-.stDownloadButton button {{
-    background: {SUCCESS} !important;
-    color: white !important;
-}}
+.stDownloadButton button {{background: {SUCCESS} !important; color: white !important;}}
 </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -500,7 +496,7 @@ def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
     except: return None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  REPORTE PDF
+#  REPORTE PDF (LOD/LOQ con 8 decimales)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
@@ -638,11 +634,18 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
             formatted_row = []
             for col in available:
                 val = row[col]
-                if col == "r2": formatted_row.append(fmt_val(val, 4))
-                elif col == "sy_x": formatted_row.append(fmt_val(val, 4))
-                elif col == "inverted": formatted_row.append("Sí" if val else "No")
-                elif col in ("type","signal"): formatted_row.append(str(val))
-                else: formatted_row.append(fmt_val(val, 2))
+                if col == "r2":
+                    formatted_row.append(fmt_val(val, 4))
+                elif col == "sy_x":
+                    formatted_row.append(fmt_val(val, 4))
+                elif col in ("lod", "loq"):
+                    formatted_row.append(fmt_val(val, 8))
+                elif col == "inverted":
+                    formatted_row.append("Sí" if val else "No")
+                elif col in ("type","signal"):
+                    formatted_row.append(str(val))
+                else:
+                    formatted_row.append(fmt_val(val, 2))
             td.append(formatted_row)
         col_w = doc.width / len(available)
         story.append(dtbl(td, [col_w]*len(available), C["grn"]))
@@ -659,16 +662,22 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         story.append(Paragraph("D) Resumen analítico", h2s))
         lod=cal.get("LOD",float("nan")); loq=cal.get("LOQ",float("nan"))
         summary_data=[
-            ["Parámetro","Valor"],["Analito",analyte],["Método",method],["λ referencia","760 nm"],
-            ["Señal seleccionada",selected_signal],["Pendiente (m)",fmt_val(cal["m"],2)],
-            ["Intercepto (b)",fmt_val(cal["b"],2)],["R²",fmt_val(cal["r2"],4)],
+            ["Parámetro","Valor"],
+            ["Analito",analyte],
+            ["Método",method],
+            ["λ referencia","760 nm"],
+            ["Señal seleccionada",selected_signal],
+            ["Pendiente (m)",fmt_val(cal["m"],2)],
+            ["Intercepto (b)",fmt_val(cal["b"],2)],
+            ["R²",fmt_val(cal["r2"],4)],
             ["Sy/x",fmt_val(cal.get("sy_x","N/D"),4)],
-            ["LOD",fmt_val(lod,2) if not math.isnan(lod) else "N/D"],
-            ["LOQ",fmt_val(loq,2) if not math.isnan(loq) else "N/D"],
+            ["LOD",fmt_val(lod,8) if not math.isnan(lod) else "N/D"],
+            ["LOQ",fmt_val(loq,8) if not math.isnan(loq) else "N/D"],
             ["IDA",fmt_val(ida,2) if ida else "N/D"],
             ["¿Señal invertida?","Sí" if inversion else "No"],
             ["Nº estándares",str(cal.get("n",""))],
-            ["Blanco usado",st.session_state.get("blank_label","No especificado")],["Fecha/hora",now],
+            ["Blanco usado",st.session_state.get("blank_label","No especificado")],
+            ["Fecha/hora",now],
         ]
         story.append(dtbl(summary_data,[2.5*inch,4.8*inch],C["grn"])); story.append(Spacer(1,10))
     
@@ -952,7 +961,6 @@ if pagina=="Análisis":
                             st.session_state.update({"ida_df":ida_norm,"all_signals":all_signals,
                                                       "best_signal":best_signal_default,
                                                       "cal_concs":concs})
-                            # Por defecto, seleccionar el mejor canal, pero permitir cambio manual
                             if st.session_state.get("selected_signal") is None or st.session_state.get("selected_signal") not in all_signals:
                                 st.session_state["selected_signal"] = best_signal_default
                             st.success(f"Barrido completado. Mejor señal por IDA: **{best_signal_default}** (IDA={best['IDA']:.1f})")
@@ -964,7 +972,7 @@ if pagina=="Análisis":
                         st.session_state["all_signals"]={}
                         st.session_state["cal_result"]=None
 
-        # ─── SELECCIÓN MANUAL DEL CANAL (COMÚN PARA CALIBRACIÓN EXTERNA) ───
+        # ─── SELECCIÓN MANUAL DEL CANAL ────────────────────────────────────
         all_signals = st.session_state.get("all_signals", {})
         if all_signals:
             st.markdown("---")
@@ -975,12 +983,11 @@ if pagina=="Análisis":
                 "Canal seleccionado:",
                 options=signal_options,
                 index=default_idx,
-                format_func=lambda x: f"{x} (R²={all_signals[x]['cal']['r2']:.4f}, IDA={next((item['IDA'] for item in st.session_state.get('ida_df',[]) if item['signal']+('_inv' if item['inverted'] else '')==x), 'N/A')})" if st.session_state.get("ida_df") else x,
+                format_func=lambda x: f"{x} (R²={all_signals[x]['cal']['r2']:.4f})" if all_signals[x]['cal'] else x,
                 key="channel_selector"
             )
             if sel_ch != st.session_state.get("selected_signal"):
                 st.session_state["selected_signal"] = sel_ch
-            # Actualizar cal_result con la selección actual
             info = all_signals[sel_ch]
             st.session_state.update({
                 "cal_result": info["cal"],
@@ -992,13 +999,13 @@ if pagina=="Análisis":
             })
             cal = info["cal"]
             concs = st.session_state.get("cal_concs")
-            if concs is not None:
+            if concs is not None and cal is not None:
                 fig = plot_cal(concs, info["sigs"], cal, sel_ch, "Fenólicos totales", 
                                st.session_state.get("cal_unit","mg/L"), info["lod"], info["loq"],
                                next((item["IDA"] for item in st.session_state.get("ida_df",[]) if item["signal"]+("_inv" if item["inverted"] else "")==sel_ch), None))
                 st.plotly_chart(fig, use_container_width=True)
                 slope_msg, slope_col = interpret_slope(cal["m"])
-                st.markdown(f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};padding:10px;">{slope_msg}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};padding:10px;">{slope_msg}</div>',unsafe_allow_html=True)
 
         elif cal_method == "Ecuación manual":
             st.markdown("### Ingrese la ecuación de la curva")
@@ -1049,7 +1056,7 @@ if pagina=="Análisis":
                 else:
                     st.error("No se pudo calcular la regresión. Verifique los datos.")
 
-        # ─── TABLA DE DATOS EXTRAÍDOS (SIEMPRE VISIBLE SI EXISTE) ──────────
+        # ─── TABLA DE DATOS EXTRAÍDOS ──────────────────────────────────────
         df_signals=st.session_state.get("df_signals")
         if df_signals is not None:
             st.markdown("### 📊 Datos extraídos")
@@ -1057,7 +1064,7 @@ if pagina=="Análisis":
             csv_data = df_signals.to_csv(index=False).encode('utf-8')
             st.download_button("⬇ Descargar datos crudos CSV", csv_data, "elementa_datos_crudos.csv", "text/csv", key="dl_crudos")
 
-        # ─── TABLA COMPARATIVA (SI EXISTE IDA) ────────────────────────────
+        # ─── TABLA COMPARATIVA ────────────────────────────────────────────
         ida_df=st.session_state.get("ida_df")
         if ida_df is not None:
             st.markdown("### Comparación gráfica de R²")
