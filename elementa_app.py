@@ -424,11 +424,12 @@ def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
     except: return None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  REPORTE PDF (LOD/LOQ con 4 decimales)
+#  REPORTE PDF
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
-            cal_png_bytes,selected_signal,unit="mg/L", ida=None, inversion=False, assignment_df=None):
+            cal_png_bytes,selected_signal,unit="mg/L", ida=None, inversion=False, assignment_df=None,
+            sa_cal_png=None, sa_results=None):
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.colors import HexColor, white
@@ -461,7 +462,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         t.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),hc or C["acc"]),("TEXTCOLOR",(0,0),(-1,0),white),
             ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),("FONTSIZE",(0,0),(-1,-1),6),
             ("ROWBACKGROUNDS",(0,1),(-1,-1),[C["card"],C["card2"]]),("TEXTCOLOR",(0,1),(-1,-1),C["txt"]),
-            ("FONTNAME",(0,1),(-1,-1),"Courier"),("GRID",(0,0),(-1,-1),.35,C["brd"]),
+            ("FONTNAME",(0,1),(-1,-1),"Courier"),("GRID",(0,0),(-1,0),.35,C["brd"]),
             ("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),("LEFTPADDING",(0,0),(-1,-1),4)]))
         return t
     def fmt_val(value, decimals=2):
@@ -539,6 +540,20 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         txt=f"Señal seleccionada: {selected_signal}."
         if inversion: txt+=" Se aplicó inversión de señal."
         story.append(note(txt)); story.append(Spacer(1,8))
+    
+    # ─── GRÁFICA DE ADICIÓN DE ESTÁNDAR EN PDF ──────────────────────────────
+    if sa_cal_png is not None:
+        story.append(Paragraph("C') Adición de estándar", h2s))
+        story.append(RLImage(BytesIO(sa_cal_png), width=5.8*inch, height=3.2*inch))
+        if sa_results:
+            txt = f"Canal: {sa_results.get('channel', 'N/A')} | R² = {sa_results.get('r2', 0):.4f} | C muestra = {sa_results.get('c_sample', 0):.4f}"
+            if 'lod' in sa_results and not np.isnan(sa_results['lod']):
+                txt += f" | LOD = {sa_results['lod']:.4f}"
+            if 'loq' in sa_results and not np.isnan(sa_results['loq']):
+                txt += f" | LOQ = {sa_results['loq']:.4f}"
+            story.append(note(txt))
+        story.append(Spacer(1, 8))
+    
     if cal:
         story.append(Paragraph("D) Resumen analítico",h2s))
         lod=cal.get("LOD",float("nan")); loq=cal.get("LOQ",float("nan"))
@@ -587,7 +602,7 @@ def init():
               df_results=None,annotated_img=None,cal_fig=None,res_fig=None,
               cal_concs=None,cal_sigs=None,cal_unit="mg/L",cal_analyte="",cal_ch="",
               cal_png=None,selected_signal="G_norm",assignment_df_backup=None,rois_backup=None,
-              original_image=None,assignment_editor_data=None,ida_df=None)
+              original_image=None,assignment_editor_data=None,ida_df=None,sa_results=None,sa_cal_png=None)
     for k,v in defs.items():
         if k not in st.session_state: st.session_state[k]=v
 init()
@@ -830,7 +845,7 @@ if pagina=="Análisis":
                 st.session_state["cal_inverted"] = False
                 st.success(f"Ecuación guardada: A = {manual_m:.4f}·C + {manual_b:.4f}")
 
-        # ========== ADICIÓN DE ESTÁNDAR ==========
+        # ========== ADICIÓN DE ESTÁNDAR MEJORADA ==========
         elif cal_method == "Adición de estándar":
             st.markdown("### Adición de estándar")
             
@@ -849,22 +864,68 @@ if pagina=="Análisis":
             adiciones_en_placa = adf[adf["Tipo"] == "Adición estándar"] if adf is not None else pd.DataFrame()
             df_merged = st.session_state.get("df_merged")
             
+            # ─── COMPARACIÓN DE R² PARA TODOS LOS CANALES ────────────────────
             if not adiciones_en_placa.empty and df_merged is not None:
-                st.success(f"🔍 Se detectaron **{len(adiciones_en_placa)}** pocillos como 'Adición estándar'.")
+                st.markdown("#### 📊 Comparación de R² por canal para adición de estándar")
                 
-                # ─── SELECTOR DE CANAL PARA ADICIÓN DE ESTÁNDAR ────────────
-                st.markdown("#### 🎯 Seleccione el canal para adición de estándar")
+                # Calcular R² para cada canal automáticamente
+                abs_cols = [c for c in df_merged.columns if c.startswith("A_") and not c.startswith("A_inv_")]
+                r2_data = []
+                
+                for col in abs_cols:
+                    ad_data = df_merged[df_merged["Tipo"] == "Adición estándar"]
+                    added = ad_data["Concentracion"].values.astype(float)
+                    sigs = ad_data[col].values.astype(float)
+                    valid = ~(np.isnan(added) | np.isnan(sigs))
+                    
+                    if valid.sum() >= 2:
+                        cal_temp = fit_line(added[valid], sigs[valid])
+                        if cal_temp:
+                            r2_data.append({"canal": col.replace("A_", ""), "r2": cal_temp["r2"], "m": cal_temp["m"], "b": cal_temp["b"]})
+                
+                if r2_data:
+                    # Gráfico de barras comparativo
+                    df_r2 = pd.DataFrame(r2_data).sort_values("r2", ascending=False)
+                    fig_r2 = go.Figure()
+                    fig_r2.add_trace(go.Bar(
+                        x=df_r2["canal"],
+                        y=df_r2["r2"],
+                        marker_color=[SUCCESS if i == 0 else ACCENT for i in range(len(df_r2))],
+                        text=[f"{v:.4f}" for v in df_r2["r2"]],
+                        textposition="outside",
+                        textfont=dict(color=TEXT, size=9, family="JetBrains Mono")
+                    ))
+                    fig_r2.update_layout(
+                        template="plotly_dark",
+                        paper_bgcolor=PLOT_BG,
+                        plot_bgcolor=PLOT_BG,
+                        title="Comparación de R² por canal (Adición de estándar)",
+                        xaxis_title="Canal",
+                        yaxis_title="R²",
+                        height=350,
+                        margin=dict(l=40, r=20, t=50, b=60)
+                    )
+                    st.plotly_chart(fig_r2, use_container_width=True, key="sa_r2_compare")
+                    
+                    # Mostrar tabla con R²
+                    st.dataframe(df_r2.round(4), use_container_width=True, hide_index=True)
+                    
+                    # Recomendar mejor canal
+                    best_channel = df_r2.iloc[0]["canal"]
+                    st.success(f"✅ **Mejor canal recomendado:** `{best_channel}` (R² = {df_r2.iloc[0]['r2']:.4f})")
+                else:
+                    st.warning("No se pudieron calcular R² para ningún canal. Verifique los datos.")
+            
+            # ─── SELECTOR DE CANAL ──────────────────────────────────────────────
+            st.markdown("#### 🎯 Seleccione el canal para adición de estándar")
+            
+            if df_merged is not None and not adiciones_en_placa.empty:
                 abs_columns = [c for c in df_merged.columns if c.startswith("A_") and not c.startswith("A_inv_")]
                 
                 if abs_columns:
-                    ida_df = st.session_state.get("ida_df")
-                    best_signal = st.session_state.get("best_signal", abs_columns[0].replace("A_", ""))
-                    
-                    if ida_df is not None:
-                        st.info(f"💡 **Canal recomendado por IDA:** `{best_signal}`")
-                    
                     channel_options = [c.replace("A_", "") for c in abs_columns]
-                    default_ch = st.session_state.get("selected_signal", best_signal)
+                    best_channel = df_r2.iloc[0]["canal"] if 'df_r2' in locals() and not df_r2.empty else channel_options[0]
+                    default_ch = st.session_state.get("selected_signal", best_channel)
                     if default_ch not in channel_options:
                         default_ch = channel_options[0]
                     
@@ -872,14 +933,16 @@ if pagina=="Análisis":
                         "Canal para adición de estándar:",
                         options=channel_options,
                         index=channel_options.index(default_ch) if default_ch in channel_options else 0,
-                        key="sa_channel_selector"
+                        key="sa_channel_selector_improved"
                     )
                     st.session_state["selected_signal"] = sel_ch
                     st.markdown(f"✅ Usando canal: **{sel_ch}**")
                 else:
                     st.warning("⚠️ No hay columnas de absorbancia. Ejecute primero el barrido de señales en 'Calibración externa'.")
-                
-                if st.button("📊 Calcular adición de estándar desde la placa", key="btn_sa_auto"):
+            
+            # ─── CÁLCULO AUTOMÁTICO DESDE LA PLACA ────────────────────────────
+            if not adiciones_en_placa.empty and df_merged is not None:
+                if st.button("📊 Calcular adición de estándar desde la placa", key="btn_sa_auto_improved"):
                     ch = st.session_state.get("selected_signal", "G_norm")
                     ac = f"A_{ch}"
                     
@@ -891,84 +954,233 @@ if pagina=="Análisis":
                     added = ad_data["Concentracion"].values.astype(float)
                     sigs = ad_data[ac].values.astype(float)
                     
-                    st.markdown("**Datos extraídos:**")
-                    st.dataframe(pd.DataFrame({
-                        "ROI": ad_data["ROI"],
-                        "C añadida": added,
-                        f"Señal ({ac})": sigs
-                    }), use_container_width=True)
-                    
                     valid = ~(np.isnan(added) | np.isnan(sigs))
                     if valid.sum() < 2:
                         st.error(f"❌ Solo {valid.sum()} punto(s) válido(s). Se necesitan al menos 2.")
                     else:
-                        cal_sa = fit_line(added[valid], sigs[valid])
+                        added_valid = added[valid]
+                        sigs_valid = sigs[valid]
+                        
+                        cal_sa = fit_line(added_valid, sigs_valid)
                         if cal_sa and abs(cal_sa["m"]) > 1e-12:
                             xi = -cal_sa["b"] / cal_sa["m"]
                             cal_sa["xi"] = xi
                             cal_sa["c_sample"] = abs(xi)
+                            
+                            # Calcular LOD/LOQ para adición de estándar (si es posible)
+                            sy_x = calc_sy_x(cal_sa)
+                            lod, loq = calc_lod_loq(cal_sa, sy_x) if not np.isnan(sy_x) else (np.nan, np.nan)
+                            cal_sa["LOD"] = lod
+                            cal_sa["LOQ"] = loq
+                            
                             st.session_state["cal_result"] = cal_sa
                             st.session_state["cal_inverted"] = False
+                            st.session_state["sa_cal_png"] = None  # Se generará después
                             
-                            st.success(f"✅ Concentración estimada de la muestra: **{abs(xi):.4f}**")
+                            # ─── GRÁFICA DE ADICIÓN DE ESTÁNDAR ──────────────
+                            fig_sa = go.Figure()
+                            fig_sa.add_trace(go.Scatter(
+                                x=added_valid,
+                                y=sigs_valid,
+                                mode="markers",
+                                marker=dict(color=ACCENT, size=12, line=dict(color=PLOT_BG, width=1.5)),
+                                name="Adiciones"
+                            ))
+                            x_range = np.linspace(min(added_valid) - 0.5, max(added_valid) + 0.5, 100)
+                            fig_sa.add_trace(go.Scatter(
+                                x=x_range,
+                                y=cal_sa["m"] * x_range + cal_sa["b"],
+                                mode="lines",
+                                line=dict(color=SUCCESS, width=2.5),
+                                name="Regresión"
+                            ))
+                            fig_sa.add_trace(go.Scatter(
+                                x=[xi],
+                                y=[0],
+                                mode="markers",
+                                marker=dict(color=DANGER, size=16, symbol="x-thin"),
+                                name=f"C muestra = {abs(xi):.4f}"
+                            ))
+                            fig_sa.add_hline(y=0, line_dash="dash", line_color=MUTED, opacity=0.5)
+                            
+                            # Anotación de ecuación
+                            m, b, r2 = cal_sa["m"], cal_sa["b"], cal_sa["r2"]
+                            sgn = "+" if b >= 0 else "-"
+                            eq = f"y = {m:.4f}x {sgn} {abs(b):.4f}   |   R² = {r2:.5f}"
+                            fig_sa.add_annotation(
+                                x=0.03,
+                                y=0.97,
+                                xref="paper",
+                                yref="paper",
+                                text=eq,
+                                showarrow=False,
+                                font=dict(color="#4ADE80", size=10, family="JetBrains Mono"),
+                                bgcolor="rgba(11,17,32,.85)",
+                                bordercolor=SUCCESS,
+                                borderwidth=1,
+                                borderpad=5
+                            )
+                            
+                            fig_sa.update_layout(
+                                template="plotly_dark",
+                                paper_bgcolor=PLOT_BG,
+                                plot_bgcolor=PLOT_BG,
+                                title=f"Adición de estándar — Canal: {ch}",
+                                xaxis_title="Concentración añadida (unidades)",
+                                yaxis_title=f"Señal ({ac})",
+                                height=450,
+                                margin=dict(l=50, r=20, t=60, b=50)
+                            )
+                            st.plotly_chart(fig_sa, use_container_width=True, key="sa_plot_improved")
+                            
+                            # Guardar la gráfica en PNG para el PDF
+                            try:
+                                import matplotlib.pyplot as plt
+                                plt.switch_backend("agg")
+                                BG2 = "#0f172a"
+                                C2 = "#1e293b"
+                                fig_png, ax = plt.subplots(figsize=(7.8, 3.8))
+                                fig_png.patch.set_facecolor(BG2)
+                                ax.set_facecolor(BG2)
+                                ax.scatter(added_valid, sigs_valid, color=ACCENT, s=60, zorder=5, edgecolors=BG2, linewidths=1.2, label="Adiciones")
+                                xl = np.linspace(min(added_valid)-0.5, max(added_valid)+0.5, 100)
+                                ax.plot(xl, cal_sa["m"]*xl + cal_sa["b"], color=SUCCESS, linewidth=2.2, label="Regresión")
+                                ax.scatter([xi], [0], color=DANGER, s=80, marker="x", zorder=6, label=f"C muestra = {abs(xi):.4f}")
+                                ax.axhline(0, color=MUTED, linestyle="--", linewidth=0.8)
+                                ax.set_xlabel("Concentración añadida", color=MUTED, fontsize=9)
+                                ax.set_ylabel(f"Señal ({ac})", color=MUTED, fontsize=9)
+                                ax.set_title(f"Adición de estándar — Canal: {ch}", color=TEXT, fontsize=10, pad=8)
+                                ax.tick_params(colors=MUTED, labelsize=8)
+                                for sp in ax.spines.values():
+                                    sp.set_edgecolor("#334155")
+                                ax.legend(facecolor=C2, edgecolor="#334155", fontsize=7)
+                                ax.grid(True, color=C2, linewidth=0.5, linestyle="--", zorder=0)
+                                plt.tight_layout(pad=0.8)
+                                buf_png = BytesIO()
+                                plt.savefig(buf_png, format="png", dpi=160, bbox_inches="tight", facecolor=BG2, edgecolor="none")
+                                buf_png.seek(0)
+                                st.session_state["sa_cal_png"] = buf_png.read()
+                                plt.close(fig_png)
+                            except Exception as e:
+                                st.warning(f"No se pudo generar la imagen PNG para el PDF: {e}")
+                            
+                            # Mostrar resultados numéricos
+                            st.success(f"✅ **Concentración estimada de la muestra:** **{abs(xi):.4f}**")
                             st.markdown(f"""
-                            **Ecuación:** Señal = {cal_sa['m']:.4f} × C_añadida + {cal_sa['b']:.4f}  
-                            **R²:** {cal_sa['r2']:.4f}  
-                            **Concentración original:** |−{cal_sa['b']:.4f} / {cal_sa['m']:.4f}| = **{abs(xi):.4f}**
+                            **Resumen analítico:**
+                            - **Ecuación:** Señal = {cal_sa['m']:.4f} × C_añadida + {cal_sa['b']:.4f}
+                            - **R²:** {cal_sa['r2']:.4f}
+                            - **Pendiente (m):** {cal_sa['m']:.4f}
+                            - **Intercepto (b):** {cal_sa['b']:.4f}
+                            - **Concentración original:** |−{cal_sa['b']:.4f} / {cal_sa['m']:.4f}| = **{abs(xi):.4f}**
+                            - **LOD (si aplica):** {lod:.4f if not np.isnan(lod) else "N/D"}
+                            - **LOQ (si aplica):** {loq:.4f if not np.isnan(loq) else "N/D"}
                             """)
                             
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(x=added[valid], y=sigs[valid], mode="markers",
-                                marker=dict(color=ACCENT, size=10), name="Adiciones"))
-                            x_range = np.linspace(min(added[valid])-0.5, max(added[valid])+0.5, 100)
-                            fig.add_trace(go.Scatter(x=x_range, y=cal_sa["m"]*x_range+cal_sa["b"],
-                                mode="lines", line=dict(color=SUCCESS, width=2), name="Regresión"))
-                            fig.add_trace(go.Scatter(x=[xi], y=[0], mode="markers",
-                                marker=dict(color=DANGER, size=14, symbol="x-thin"),
-                                name=f"C muestra = {abs(xi):.4f}"))
-                            fig.add_hline(y=0, line_dash="dash", line_color=MUTED)
-                            fig.update_layout(template="plotly_dark",
-                                title=f"Adición de estándar — Canal: {ch}",
-                                xaxis_title="Concentración añadida",
-                                yaxis_title=f"Señal ({ac})")
-                            st.plotly_chart(fig, use_container_width=True)
+                            # Guardar en session_state para el reporte
+                            st.session_state["sa_results"] = {
+                                "channel": ch,
+                                "added": added_valid.tolist(),
+                                "signals": sigs_valid.tolist(),
+                                "cal": cal_sa,
+                                "xi": xi,
+                                "c_sample": abs(xi),
+                                "lod": lod,
+                                "loq": loq,
+                                "r2": r2,
+                                "m": m,
+                                "b": b
+                            }
                         else:
-                            st.error("❌ No se pudo calcular la regresión. Verifique los datos.")
+                            st.error("❌ No se pudo calcular la regresión. Verifique los datos (pendiente muy cercana a cero).")
             else:
                 if adiciones_en_placa.empty:
                     st.info("💡 Para usar la opción automática, asigne pocillos como **'Adición estándar'** en la pestaña **Procesamiento**.")
                 else:
                     st.warning("⚠️ Ejecute primero el **barrido de señales** en 'Calibración externa (estándares)' para extraer las absorbancias.")
+            
+            # ─── OPCIÓN MANUAL ──────────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("**O ingrese los datos manualmente:**")
+            
+            if "sa_data" not in st.session_state:
+                st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(5)]
+            
+            n_points = st.number_input("Número de puntos", 2, 10, len(st.session_state["sa_data"]), key="sa_n_manual")
+            if n_points != len(st.session_state["sa_data"]):
+                st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(n_points)]
+            
+            for i in range(n_points):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.session_state["sa_data"][i]["C_añadida"] = st.number_input(
+                        f"C añadida {i+1}", value=st.session_state["sa_data"][i]["C_añadida"], step=0.001, format="%.4f", key=f"sa_c_manual_{i}")
+                with col_b:
+                    st.session_state["sa_data"][i]["Señal"] = st.number_input(
+                        f"Señal {i+1}", value=st.session_state["sa_data"][i]["Señal"], step=0.0001, format="%.5f", key=f"sa_s_manual_{i}")
+            
+            if st.button("Calcular por adición de estándar (manual)", key="btn_sa_manual"):
+                added = np.array([d["C_añadida"] for d in st.session_state["sa_data"]], dtype=float)
+                sigs = np.array([d["Señal"] for d in st.session_state["sa_data"]], dtype=float)
+                valid = ~(np.isnan(added) | np.isnan(sigs))
                 
-                st.markdown("---")
-                st.markdown("**O ingrese los datos manualmente:**")
-                
-                if "sa_data" not in st.session_state:
-                    st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(5)]
-                
-                n_points = st.number_input("Número de puntos", 2, 10, len(st.session_state["sa_data"]), key="sa_n")
-                if n_points != len(st.session_state["sa_data"]):
-                    st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(n_points)]
-                
-                for i in range(n_points):
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.session_state["sa_data"][i]["C_añadida"] = st.number_input(
-                            f"C añadida {i+1}", value=st.session_state["sa_data"][i]["C_añadida"], step=0.001, format="%.4f", key=f"sa_c_{i}")
-                    with col_b:
-                        st.session_state["sa_data"][i]["Señal"] = st.number_input(
-                            f"Señal {i+1}", value=st.session_state["sa_data"][i]["Señal"], step=0.0001, format="%.5f", key=f"sa_s_{i}")
-                
-                if st.button("Calcular por adición de estándar", key="btn_sa"):
-                    added = np.array([d["C_añadida"] for d in st.session_state["sa_data"]], dtype=float)
-                    sigs = np.array([d["Señal"] for d in st.session_state["sa_data"]], dtype=float)
-                    cal_manual = fit_line(added, sigs)
+                if valid.sum() < 2:
+                    st.error("Se necesitan al menos 2 puntos válidos.")
+                else:
+                    cal_manual = fit_line(added[valid], sigs[valid])
                     if cal_manual and abs(cal_manual["m"]) > 1e-12:
                         xi = -cal_manual["b"] / cal_manual["m"]
-                        cal_manual["xi"] = xi; cal_manual["c_sample"] = abs(xi)
+                        cal_manual["xi"] = xi
+                        cal_manual["c_sample"] = abs(xi)
+                        
+                        # Calcular LOD/LOQ si es posible
+                        sy_x = calc_sy_x(cal_manual)
+                        lod, loq = calc_lod_loq(cal_manual, sy_x) if not np.isnan(sy_x) else (np.nan, np.nan)
+                        cal_manual["LOD"] = lod
+                        cal_manual["LOQ"] = loq
+                        
                         st.session_state["cal_result"] = cal_manual
                         st.session_state["cal_inverted"] = False
+                        st.session_state["sa_cal_png"] = None
+                        
                         st.success(f"Concentración estimada: **{abs(xi):.4f}**")
+                        st.markdown(f"""
+                        **Ecuación:** Señal = {cal_manual['m']:.4f} × C + {cal_manual['b']:.4f}
+                        **R²:** {cal_manual['r2']:.4f}
+                        **LOD:** {lod:.4f if not np.isnan(lod) else "N/D"}
+                        **LOQ:** {loq:.4f if not np.isnan(loq) else "N/D"}
+                        """)
+                        
+                        # Gráfica manual
+                        fig_manual = go.Figure()
+                        fig_manual.add_trace(go.Scatter(x=added[valid], y=sigs[valid], mode="markers",
+                            marker=dict(color=ACCENT, size=12), name="Datos"))
+                        x_range = np.linspace(min(added[valid])-0.5, max(added[valid])+0.5, 100)
+                        fig_manual.add_trace(go.Scatter(x=x_range, y=cal_manual["m"]*x_range+cal_manual["b"],
+                            mode="lines", line=dict(color=SUCCESS, width=2.5), name="Regresión"))
+                        fig_manual.add_trace(go.Scatter(x=[xi], y=[0], mode="markers",
+                            marker=dict(color=DANGER, size=16, symbol="x-thin"), name=f"C = {abs(xi):.4f}"))
+                        fig_manual.add_hline(y=0, line_dash="dash", line_color=MUTED)
+                        fig_manual.update_layout(template="plotly_dark",
+                            title="Adición de estándar (manual)",
+                            xaxis_title="Concentración añadida",
+                            yaxis_title="Señal")
+                        st.plotly_chart(fig_manual, use_container_width=True)
+                        
+                        # Guardar para PDF
+                        st.session_state["sa_results"] = {
+                            "channel": "Manual",
+                            "added": added[valid].tolist(),
+                            "signals": sigs[valid].tolist(),
+                            "cal": cal_manual,
+                            "xi": xi,
+                            "c_sample": abs(xi),
+                            "lod": lod,
+                            "loq": loq,
+                            "r2": cal_manual["r2"],
+                            "m": cal_manual["m"],
+                            "b": cal_manual["b"]
+                        }
                     else:
                         st.error("No se pudo calcular la regresión. Verifique los datos.")
 
@@ -1063,13 +1275,19 @@ if pagina=="Análisis":
                 concs=st.session_state.get("cal_concs"); sigs=st.session_state.get("cal_sigs"); ch=st.session_state.get("selected_signal","")
                 unit=st.session_state.get("cal_unit","mg/L"); lod=st.session_state.get("cal_lod",np.nan); loq=st.session_state.get("cal_loq",np.nan)
                 if concs is not None and sigs is not None: cal_png=cal_to_png(cal,concs,sigs,ch,"Fenólicos totales",unit,lod,loq)
+            
+            # Obtener gráfica de adición de estándar si existe
+            sa_png = st.session_state.get("sa_cal_png")
+            sa_res = st.session_state.get("sa_results")
+            
             try:
                 pdf_b=gen_pdf(analyte="Fenólicos totales",method="Folin-Ciocalteu (760 nm)",
                               df_signals=pd.DataFrame(st.session_state.get("ida_df",[])),df_results=df_res,cal=cal,
                               annotated_img=st.session_state.get("annotated_img"),tri_df=st.session_state.get("tri_df"),
                               cal_png_bytes=cal_png,selected_signal=st.session_state.get("selected_signal",""),
                               unit=st.session_state.get("cal_unit","mg/L"),ida=ida_val,inversion=inverted,
-                              assignment_df=st.session_state.get("assignment_df"))
+                              assignment_df=st.session_state.get("assignment_df"),
+                              sa_cal_png=sa_png, sa_results=sa_res)
                 b64=base64.b64encode(pdf_b).decode()
                 fname=f"Elementa_v1_{sanitize_filename('Fenólicos_totales')}_{now_mx():%Y%m%d_%H%M}.pdf"
                 st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="{fname}" style="background:{ACCENT};color:white;padding:10px 24px;border-radius:6px;text-decoration:none;font-weight:700;">Descargar PDF</a>',unsafe_allow_html=True)
