@@ -1,5 +1,5 @@
 """
-Elementa v1 — Sistema Analítico Colorimétrico Digital
+Elementa — Sistema Analítico Colorimétrico Digital
 Derechos reservados (Katyutzka Villarreal, 2026)
 
 Software científico para colorimetría digital basada en imágenes RGB.
@@ -1009,6 +1009,7 @@ if pagina=="Análisis":
 
         elif cal_method == "Ecuación manual":
             st.markdown("### Ingrese la ecuación de la curva")
+            st.info("💡 Use esta opción si ya conoce la pendiente (m) y el intercepto (b) de una curva previamente calculada.")
             col1, col2 = st.columns(2)
             with col1:
                 manual_m = st.number_input("Pendiente (m)", value=0.0, step=0.0001, format="%.4f")
@@ -1022,39 +1023,131 @@ if pagina=="Análisis":
 
         elif cal_method == "Adición de estándar":
             st.markdown("### Adición de estándar")
-            st.info("Ingrese la concentración añadida y la señal medida para cada punto.")
             
-            if "sa_data" not in st.session_state:
-                st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(5)]
+            # ─── INSTRUCCIONES ────────────────────────────────────────────
+            with st.expander("📖 ¿Cómo usar la adición de estándar?", expanded=True):
+                st.markdown("""
+                **Opción A — Automática (desde la placa):**
+                1. En la pestaña **Procesamiento**, asigne algunos pocillos como **"Adición estándar"**.
+                2. Ingrese la **concentración añadida** en cada uno (ej. 0, 2, 4, 6, 8 ppm).
+                3. Ejecute primero el **barrido de señales** en "Calibración externa".
+                4. Vuelva aquí y presione **"Calcular adición de estándar desde la placa"**.
+                
+                **Opción B — Manual:**
+                1. Ingrese manualmente los valores de concentración añadida y la señal medida.
+                2. Presione **"Calcular por adición de estándar"**.
+                
+                **Fundamento:** Se agregan cantidades conocidas del analito a alícuotas de la muestra. La concentración original se obtiene de la intersección con el eje X: **|−b/m|**.
+                """)
             
-            n_points = st.number_input("Número de puntos", 2, 10, len(st.session_state["sa_data"]), key="sa_n")
-            if n_points != len(st.session_state["sa_data"]):
-                st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(n_points)]
+            # Verificar si hay pocillos marcados como "Adición estándar"
+            adiciones_en_placa = adf[adf["Tipo"] == "Adición estándar"] if adf is not None else pd.DataFrame()
             
-            for i in range(n_points):
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.session_state["sa_data"][i]["C_añadida"] = st.number_input(
-                        f"C añadida {i+1}", value=st.session_state["sa_data"][i]["C_añadida"], step=0.001, format="%.4f", key=f"sa_c_{i}"
-                    )
-                with col_b:
-                    st.session_state["sa_data"][i]["Señal"] = st.number_input(
-                        f"Señal {i+1}", value=st.session_state["sa_data"][i]["Señal"], step=0.0001, format="%.5f", key=f"sa_s_{i}"
-                    )
-            
-            if st.button("Calcular por adición de estándar", key="btn_sa"):
-                added = np.array([d["C_añadida"] for d in st.session_state["sa_data"]], dtype=float)
-                sigs = np.array([d["Señal"] for d in st.session_state["sa_data"]], dtype=float)
-                cal = fit_line(added, sigs)
-                if cal and abs(cal["m"]) > 1e-12:
-                    xi = -cal["b"] / cal["m"]
-                    cal["xi"] = xi
-                    cal["c_sample"] = abs(xi)
-                    st.session_state["cal_result"] = cal
-                    st.session_state["cal_inverted"] = False
-                    st.success(f"Concentración estimada: **{abs(xi):.4f}**")
+            if not adiciones_en_placa.empty and st.session_state.get("df_merged") is not None:
+                st.success(f"🔍 Se detectaron **{len(adiciones_en_placa)}** pocillos como 'Adición estándar' en la placa.")
+                
+                if st.button("📊 Calcular adición de estándar desde la placa", key="btn_sa_auto"):
+                    df_merged = st.session_state["df_merged"]
+                    ch = st.session_state.get("selected_signal", "G_norm")
+                    prefix = "A_inv_" if st.session_state.get("cal_inverted") else "A_"
+                    ac = f"{prefix}{ch.replace('_inv', '')}"
+                    
+                    ad_data = df_merged[df_merged["Tipo"] == "Adición estándar"]
+                    added = ad_data["Concentracion"].values.astype(float)
+                    
+                    if ac in df_merged.columns:
+                        sigs = ad_data[ac].values.astype(float)
+                    else:
+                        st.error(f"No se encontró la señal {ac}. Ejecute primero el barrido de señales en 'Calibración externa'.")
+                        st.stop()
+                    
+                    mask = ~(np.isnan(added) | np.isnan(sigs))
+                    added = added[mask]
+                    sigs = sigs[mask]
+                    
+                    if len(added) < 2:
+                        st.error("Se necesitan al menos 2 puntos de adición con señal válida.")
+                    else:
+                        cal = fit_line(added, sigs)
+                        if cal and abs(cal["m"]) > 1e-12:
+                            xi = -cal["b"] / cal["m"]
+                            cal["xi"] = xi
+                            cal["c_sample"] = abs(xi)
+                            st.session_state["cal_result"] = cal
+                            st.session_state["cal_inverted"] = False
+                            
+                            st.success(f"✅ Concentración estimada de la muestra: **{abs(xi):.4f}**")
+                            st.markdown(f"""
+                            **Ecuación:** Señal = {cal['m']:.4f} × C_añadida + {cal['b']:.4f}  
+                            **R²:** {cal['r2']:.4f}  
+                            **Concentración original:** |−{cal['b']:.4f} / {cal['m']:.4f}| = **{abs(xi):.4f}**
+                            """)
+                            
+                            st.markdown("**Datos utilizados:**")
+                            data_show = pd.DataFrame({
+                                "C añadida": added,
+                                "Señal": sigs,
+                                "ROI": ad_data["ROI"].values[mask]
+                            })
+                            st.dataframe(data_show, use_container_width=True)
+                            
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(x=added, y=sigs, mode="markers",
+                                marker=dict(color=ACCENT, size=10), name="Adiciones"))
+                            x_range = np.linspace(min(added)-0.5, max(added)+0.5, 100)
+                            fig.add_trace(go.Scatter(x=x_range, y=cal["m"]*x_range+cal["b"],
+                                mode="lines", line=dict(color=SUCCESS, width=2), name="Regresión"))
+                            fig.add_trace(go.Scatter(x=[xi], y=[0], mode="markers",
+                                marker=dict(color=DANGER, size=14, symbol="x-thin"),
+                                name=f"C muestra = {abs(xi):.4f}"))
+                            fig.add_hline(y=0, line_dash="dash", line_color=MUTED)
+                            fig.update_layout(template="plotly_dark", 
+                                title="Adición de estándar",
+                                xaxis_title="Concentración añadida",
+                                yaxis_title="Señal")
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.error("No se pudo calcular la regresión. Verifique los datos.")
+            else:
+                if adiciones_en_placa.empty:
+                    st.info("💡 **Opción automática:** Para usar la adición desde la placa, asigne pocillos como **'Adición estándar'** en la pestaña Procesamiento, ejecute el barrido de señales en 'Calibración externa', y luego regrese aquí.")
                 else:
-                    st.error("No se pudo calcular la regresión. Verifique los datos.")
+                    st.info("📌 Ejecute primero el **barrido de señales** en 'Calibración externa' para poder usar la opción automática.")
+                
+                st.markdown("---")
+                st.markdown("**O bien, ingrese los datos manualmente:**")
+                
+                if "sa_data" not in st.session_state:
+                    st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(5)]
+                
+                n_points = st.number_input("Número de puntos", 2, 10, len(st.session_state["sa_data"]), key="sa_n")
+                if n_points != len(st.session_state["sa_data"]):
+                    st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(n_points)]
+                
+                for i in range(n_points):
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.session_state["sa_data"][i]["C_añadida"] = st.number_input(
+                            f"C añadida {i+1}", value=st.session_state["sa_data"][i]["C_añadida"], step=0.001, format="%.4f", key=f"sa_c_{i}"
+                        )
+                    with col_b:
+                        st.session_state["sa_data"][i]["Señal"] = st.number_input(
+                            f"Señal {i+1}", value=st.session_state["sa_data"][i]["Señal"], step=0.0001, format="%.5f", key=f"sa_s_{i}"
+                        )
+                
+                if st.button("Calcular por adición de estándar", key="btn_sa"):
+                    added = np.array([d["C_añadida"] for d in st.session_state["sa_data"]], dtype=float)
+                    sigs = np.array([d["Señal"] for d in st.session_state["sa_data"]], dtype=float)
+                    cal = fit_line(added, sigs)
+                    if cal and abs(cal["m"]) > 1e-12:
+                        xi = -cal["b"] / cal["m"]
+                        cal["xi"] = xi
+                        cal["c_sample"] = abs(xi)
+                        st.session_state["cal_result"] = cal
+                        st.session_state["cal_inverted"] = False
+                        st.success(f"Concentración estimada: **{abs(xi):.4f}**")
+                    else:
+                        st.error("No se pudo calcular la regresión. Verifique los datos.")
 
         # ─── TABLA DE DATOS EXTRAÍDOS ──────────────────────────────────────
         df_signals=st.session_state.get("df_signals")
