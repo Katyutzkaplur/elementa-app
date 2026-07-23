@@ -424,7 +424,7 @@ def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
     except: return None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  REPORTE PDF
+#  REPORTE PDF (LOD/LOQ con 4 decimales)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
@@ -526,7 +526,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
                 val=row[col]
                 if col=="r2": formatted_row.append(fmt_val(val,4))
                 elif col=="sy_x": formatted_row.append(fmt_val(val,4))
-                elif col in ("lod","loq"): formatted_row.append(fmt_val(val,8))
+                elif col in ("lod","loq"): formatted_row.append(fmt_val(val,4))
                 elif col=="inverted": formatted_row.append("Sí" if val else "No")
                 elif col in ("type","signal"): formatted_row.append(str(val))
                 else: formatted_row.append(fmt_val(val,2))
@@ -545,7 +545,8 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         summary_data=[["Parámetro","Valor"],["Analito",analyte],["Método",method],["λ referencia","760 nm"],
             ["Señal seleccionada",selected_signal],["Pendiente (m)",fmt_val(cal["m"],2)],["Intercepto (b)",fmt_val(cal["b"],2)],
             ["R²",fmt_val(cal["r2"],4)],["Sy/x",fmt_val(cal.get("sy_x","N/D"),4)],
-            ["LOD",fmt_val(lod,8) if not math.isnan(lod) else "N/D"],["LOQ",fmt_val(loq,8) if not math.isnan(loq) else "N/D"],
+            ["LOD",fmt_val(lod,4) if not math.isnan(lod) else "N/D"],
+            ["LOQ",fmt_val(loq,4) if not math.isnan(loq) else "N/D"],
             ["IDA",fmt_val(ida,2) if ida else "N/D"],["¿Señal invertida?","Sí" if inversion else "No"],
             ["Nº estándares",str(cal.get("n",""))],["Blanco usado",st.session_state.get("blank_label","No especificado")],["Fecha/hora",now]]
         story.append(dtbl(summary_data,[2.5*inch,4.8*inch],C["grn"])); story.append(Spacer(1,10))
@@ -765,6 +766,7 @@ if pagina=="Análisis":
                               ["Calibración externa (estándares)", "Ecuación manual", "Adición de estándar"],
                               horizontal=True)
 
+        # ========== CALIBRACIÓN EXTERNA ==========
         if cal_method == "Calibración externa (estándares)":
             with st.expander("ℹ️ ¿Qué es el IDA?", expanded=False):
                 st.markdown("**Índice de Desempeño Analítico (IDA)**")
@@ -810,49 +812,13 @@ if pagina=="Análisis":
                             st.session_state.update({"ida_df":ida_norm,"all_signals":all_signals,"best_signal":best_signal_default,"cal_concs":concs})
                             if st.session_state.get("selected_signal") is None or st.session_state.get("selected_signal") not in all_signals:
                                 st.session_state["selected_signal"] = best_signal_default
-                            st.success(f"Barrido completado. Mejor señal: **{best_signal_default}** (IDA={best['IDA']:.1f})")
+                            st.success(f"Barrido completado. Mejor señal por IDA: **{best_signal_default}** (IDA={best['IDA']:.1f})")
                         else: st.warning("No se pudo calcular ninguna regresión.")
                     else:
                         st.info("📊 Barrido de señales completado (sin calibración).")
                         st.session_state["ida_df"]=None; st.session_state["all_signals"]={}; st.session_state["cal_result"]=None
 
-        # ─── SELECTOR DE CANAL (SIEMPRE VISIBLE SI HAY DATOS) ──────────────
-        df_signals_global = st.session_state.get("df_signals")
-        df_merged_global = st.session_state.get("df_merged")
-        all_signals = st.session_state.get("all_signals", {})
-        
-        # Si hay datos extraídos pero no hay all_signals (ej. adición de estándar sin estándares)
-        if df_merged_global is not None and not all_signals:
-            # Crear un diccionario simple con las columnas A_ disponibles
-            abs_cols = [c for c in df_merged_global.columns if c.startswith("A_") and not c.startswith("A_inv_")]
-            if abs_cols:
-                temp_signals = {}
-                for col in abs_cols:
-                    ch_name = col.replace("A_", "")
-                    temp_signals[ch_name] = {"cal": None, "sigs": None, "lod": np.nan, "loq": np.nan, "sy_x": np.nan, "inverted": False}
-                all_signals = temp_signals
-        
-        if all_signals:
-            st.markdown("---")
-            st.markdown("### 🎯 Selección del canal")
-            signal_options = list(all_signals.keys())
-            default_idx = signal_options.index(st.session_state.get("selected_signal", signal_options[0])) if st.session_state.get("selected_signal") in signal_options else 0
-            sel_ch = st.selectbox("Canal:", options=signal_options, index=default_idx,
-                format_func=lambda x: f"{x}" if all_signals[x].get('cal') is None else f"{x} (R²={all_signals[x]['cal']['r2']:.4f})",
-                key="channel_selector")
-            if sel_ch != st.session_state.get("selected_signal"):
-                st.session_state["selected_signal"] = sel_ch
-            if all_signals[sel_ch].get("cal") is not None:
-                info = all_signals[sel_ch]
-                st.session_state.update({"cal_result":info["cal"],"cal_sigs":info["sigs"],"cal_lod":info["lod"],"cal_loq":info["loq"],"cal_sy_x":info["sy_x"],"cal_inverted":info["inverted"]})
-                cal = info["cal"]; concs = st.session_state.get("cal_concs")
-                if concs is not None and cal is not None:
-                    fig = plot_cal(concs, info["sigs"], cal, sel_ch, "Fenólicos totales", st.session_state.get("cal_unit","mg/L"), info["lod"], info["loq"],
-                                   next((item["IDA"] for item in st.session_state.get("ida_df",[]) if item["signal"]+("_inv" if item["inverted"] else "")==sel_ch), None))
-                    st.plotly_chart(fig, use_container_width=True)
-                    slope_msg, slope_col = interpret_slope(cal["m"])
-                    st.markdown(f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};padding:10px;">{slope_msg}</div>',unsafe_allow_html=True)
-
+        # ========== ECUACIÓN MANUAL ==========
         elif cal_method == "Ecuación manual":
             st.markdown("### Ingrese la ecuación de la curva")
             st.info("💡 Use esta opción si ya conoce la pendiente (m) y el intercepto (b).")
@@ -864,91 +830,198 @@ if pagina=="Análisis":
                 st.session_state["cal_inverted"] = False
                 st.success(f"Ecuación guardada: A = {manual_m:.4f}·C + {manual_b:.4f}")
 
+        # ========== ADICIÓN DE ESTÁNDAR ==========
         elif cal_method == "Adición de estándar":
             st.markdown("### Adición de estándar")
+            
             with st.expander("📖 ¿Cómo usar la adición de estándar?", expanded=False):
                 st.markdown("""
-                **Opción A — Automática (desde la placa):**
+                **Opción A — Automática (desde la placa/tubos):**
                 1. Asigne pocillos como **"Adición estándar"** con sus concentraciones añadidas.
                 2. Asigne al menos un pocillo como **"Blanco"**.
-                3. Ejecute el **barrido de señales** en "Calibración externa".
-                4. Regrese aquí y presione **"Calcular adición de estándar desde la placa"**.
+                3. Ejecute el **barrido de señales** en "Calibración externa" primero.
+                4. Seleccione el canal deseado abajo.
+                5. Presione **"Calcular adición de estándar desde la placa"**.
+                
                 **Opción B — Manual:** Ingrese los valores manualmente.
                 """)
+            
             adiciones_en_placa = adf[adf["Tipo"] == "Adición estándar"] if adf is not None else pd.DataFrame()
             df_merged = st.session_state.get("df_merged")
+            
             if not adiciones_en_placa.empty and df_merged is not None:
                 st.success(f"🔍 Se detectaron **{len(adiciones_en_placa)}** pocillos como 'Adición estándar'.")
-                abs_columns = [c for c in df_merged.columns if c.startswith("A_")]
-                st.markdown(f"**Columnas de absorbancia:** {', '.join(abs_columns) if abs_columns else '⚠️ NINGUNA'}")
+                
+                # ─── SELECTOR DE CANAL PARA ADICIÓN DE ESTÁNDAR ────────────
+                st.markdown("#### 🎯 Seleccione el canal para adición de estándar")
+                abs_columns = [c for c in df_merged.columns if c.startswith("A_") and not c.startswith("A_inv_")]
+                
+                if abs_columns:
+                    ida_df = st.session_state.get("ida_df")
+                    best_signal = st.session_state.get("best_signal", abs_columns[0].replace("A_", ""))
+                    
+                    if ida_df is not None:
+                        st.info(f"💡 **Canal recomendado por IDA:** `{best_signal}`")
+                    
+                    channel_options = [c.replace("A_", "") for c in abs_columns]
+                    default_ch = st.session_state.get("selected_signal", best_signal)
+                    if default_ch not in channel_options:
+                        default_ch = channel_options[0]
+                    
+                    sel_ch = st.selectbox(
+                        "Canal para adición de estándar:",
+                        options=channel_options,
+                        index=channel_options.index(default_ch) if default_ch in channel_options else 0,
+                        key="sa_channel_selector"
+                    )
+                    st.session_state["selected_signal"] = sel_ch
+                    st.markdown(f"✅ Usando canal: **{sel_ch}**")
+                else:
+                    st.warning("⚠️ No hay columnas de absorbancia. Ejecute primero el barrido de señales en 'Calibración externa'.")
+                
                 if st.button("📊 Calcular adición de estándar desde la placa", key="btn_sa_auto"):
                     ch = st.session_state.get("selected_signal", "G_norm")
-                    prefix = "A_inv_" if st.session_state.get("cal_inverted") else "A_"
-                    ac = f"{prefix}{ch.replace('_inv', '')}"
+                    ac = f"A_{ch}"
+                    
                     if ac not in df_merged.columns:
-                        all_abs = [c for c in df_merged.columns if c.startswith("A_") and not c.startswith("A_inv_")]
-                        if all_abs: ac = all_abs[0]; ch = ac.replace("A_", "")
-                        else: st.error("❌ No hay columnas de absorbancia. Ejecute el barrido primero."); st.stop()
+                        st.error(f"❌ Columna '{ac}' no encontrada. Seleccione otro canal.")
+                        st.stop()
+                    
                     ad_data = df_merged[df_merged["Tipo"] == "Adición estándar"]
                     added = ad_data["Concentracion"].values.astype(float)
-                    sigs = ad_data[ac].values.astype(float) if ac in df_merged.columns else np.full(len(added), np.nan)
-                    st.dataframe(pd.DataFrame({"ROI":ad_data["ROI"],"C añadida":added,f"Señal ({ac})":sigs}), use_container_width=True)
-                    valid = ~(np.isnan(added)|np.isnan(sigs))
-                    if valid.sum()<2: st.error(f"❌ Solo {valid.sum()} punto(s) válido(s). Se necesitan 2.")
+                    sigs = ad_data[ac].values.astype(float)
+                    
+                    st.markdown("**Datos extraídos:**")
+                    st.dataframe(pd.DataFrame({
+                        "ROI": ad_data["ROI"],
+                        "C añadida": added,
+                        f"Señal ({ac})": sigs
+                    }), use_container_width=True)
+                    
+                    valid = ~(np.isnan(added) | np.isnan(sigs))
+                    if valid.sum() < 2:
+                        st.error(f"❌ Solo {valid.sum()} punto(s) válido(s). Se necesitan al menos 2.")
                     else:
-                        cal_sa=fit_line(added[valid],sigs[valid])
-                        if cal_sa and abs(cal_sa["m"])>1e-12:
-                            xi=-cal_sa["b"]/cal_sa["m"]; cal_sa["xi"]=xi; cal_sa["c_sample"]=abs(xi)
-                            st.session_state["cal_result"]=cal_sa; st.session_state["cal_inverted"]=False
-                            st.success(f"✅ Concentración: **{abs(xi):.4f}**")
-                            st.markdown(f"**Ecuación:** Señal = {cal_sa['m']:.4f}×C + {cal_sa['b']:.4f} | R²={cal_sa['r2']:.4f}")
-                            fig=go.Figure()
-                            fig.add_trace(go.Scatter(x=added[valid],y=sigs[valid],mode="markers",marker=dict(color=ACCENT,size=10),name="Adiciones"))
-                            xr=np.linspace(min(added[valid])-.5,max(added[valid])+.5,100)
-                            fig.add_trace(go.Scatter(x=xr,y=cal_sa["m"]*xr+cal_sa["b"],mode="lines",line=dict(color=SUCCESS,width=2),name="Regresión"))
-                            fig.add_trace(go.Scatter(x=[xi],y=[0],mode="markers",marker=dict(color=DANGER,size=14,symbol="x-thin"),name=f"C={abs(xi):.4f}"))
-                            fig.add_hline(y=0,line_dash="dash",line_color=MUTED)
-                            fig.update_layout(template="plotly_dark",title=f"Adición de estándar — Canal: {ch}")
-                            st.plotly_chart(fig,use_container_width=True)
-                        else: st.error("❌ No se pudo calcular la regresión.")
+                        cal_sa = fit_line(added[valid], sigs[valid])
+                        if cal_sa and abs(cal_sa["m"]) > 1e-12:
+                            xi = -cal_sa["b"] / cal_sa["m"]
+                            cal_sa["xi"] = xi
+                            cal_sa["c_sample"] = abs(xi)
+                            st.session_state["cal_result"] = cal_sa
+                            st.session_state["cal_inverted"] = False
+                            
+                            st.success(f"✅ Concentración estimada de la muestra: **{abs(xi):.4f}**")
+                            st.markdown(f"""
+                            **Ecuación:** Señal = {cal_sa['m']:.4f} × C_añadida + {cal_sa['b']:.4f}  
+                            **R²:** {cal_sa['r2']:.4f}  
+                            **Concentración original:** |−{cal_sa['b']:.4f} / {cal_sa['m']:.4f}| = **{abs(xi):.4f}**
+                            """)
+                            
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(x=added[valid], y=sigs[valid], mode="markers",
+                                marker=dict(color=ACCENT, size=10), name="Adiciones"))
+                            x_range = np.linspace(min(added[valid])-0.5, max(added[valid])+0.5, 100)
+                            fig.add_trace(go.Scatter(x=x_range, y=cal_sa["m"]*x_range+cal_sa["b"],
+                                mode="lines", line=dict(color=SUCCESS, width=2), name="Regresión"))
+                            fig.add_trace(go.Scatter(x=[xi], y=[0], mode="markers",
+                                marker=dict(color=DANGER, size=14, symbol="x-thin"),
+                                name=f"C muestra = {abs(xi):.4f}"))
+                            fig.add_hline(y=0, line_dash="dash", line_color=MUTED)
+                            fig.update_layout(template="plotly_dark",
+                                title=f"Adición de estándar — Canal: {ch}",
+                                xaxis_title="Concentración añadida",
+                                yaxis_title=f"Señal ({ac})")
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.error("❌ No se pudo calcular la regresión. Verifique los datos.")
             else:
-                if adiciones_en_placa.empty: st.info("💡 Asigne pocillos como 'Adición estándar' en Procesamiento.")
-                else: st.warning("⚠️ Ejecute primero el barrido de señales en 'Calibración externa'.")
-                st.markdown("---"); st.markdown("**O ingrese los datos manualmente:**")
-                if "sa_data" not in st.session_state: st.session_state["sa_data"]=[{"C_añadida":0.0,"Señal":0.0} for _ in range(5)]
-                n_points=st.number_input("Número de puntos",2,10,len(st.session_state["sa_data"]),key="sa_n")
-                if n_points!=len(st.session_state["sa_data"]): st.session_state["sa_data"]=[{"C_añadida":0.0,"Señal":0.0} for _ in range(n_points)]
+                if adiciones_en_placa.empty:
+                    st.info("💡 Para usar la opción automática, asigne pocillos como **'Adición estándar'** en la pestaña **Procesamiento**.")
+                else:
+                    st.warning("⚠️ Ejecute primero el **barrido de señales** en 'Calibración externa (estándares)' para extraer las absorbancias.")
+                
+                st.markdown("---")
+                st.markdown("**O ingrese los datos manualmente:**")
+                
+                if "sa_data" not in st.session_state:
+                    st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(5)]
+                
+                n_points = st.number_input("Número de puntos", 2, 10, len(st.session_state["sa_data"]), key="sa_n")
+                if n_points != len(st.session_state["sa_data"]):
+                    st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(n_points)]
+                
                 for i in range(n_points):
-                    ca,cb=st.columns(2)
-                    with ca: st.session_state["sa_data"][i]["C_añadida"]=st.number_input(f"C añadida {i+1}",value=st.session_state["sa_data"][i]["C_añadida"],step=0.001,format="%.4f",key=f"sa_c_{i}")
-                    with cb: st.session_state["sa_data"][i]["Señal"]=st.number_input(f"Señal {i+1}",value=st.session_state["sa_data"][i]["Señal"],step=0.0001,format="%.5f",key=f"sa_s_{i}")
-                if st.button("Calcular por adición de estándar",key="btn_sa"):
-                    added=np.array([d["C_añadida"] for d in st.session_state["sa_data"]],dtype=float)
-                    sigs=np.array([d["Señal"] for d in st.session_state["sa_data"]],dtype=float)
-                    cal_manual=fit_line(added,sigs)
-                    if cal_manual and abs(cal_manual["m"])>1e-12:
-                        xi=-cal_manual["b"]/cal_manual["m"]; cal_manual["xi"]=xi; cal_manual["c_sample"]=abs(xi)
-                        st.session_state["cal_result"]=cal_manual; st.session_state["cal_inverted"]=False
-                        st.success(f"Concentración: **{abs(xi):.4f}**")
-                    else: st.error("No se pudo calcular la regresión.")
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.session_state["sa_data"][i]["C_añadida"] = st.number_input(
+                            f"C añadida {i+1}", value=st.session_state["sa_data"][i]["C_añadida"], step=0.001, format="%.4f", key=f"sa_c_{i}")
+                    with col_b:
+                        st.session_state["sa_data"][i]["Señal"] = st.number_input(
+                            f"Señal {i+1}", value=st.session_state["sa_data"][i]["Señal"], step=0.0001, format="%.5f", key=f"sa_s_{i}")
+                
+                if st.button("Calcular por adición de estándar", key="btn_sa"):
+                    added = np.array([d["C_añadida"] for d in st.session_state["sa_data"]], dtype=float)
+                    sigs = np.array([d["Señal"] for d in st.session_state["sa_data"]], dtype=float)
+                    cal_manual = fit_line(added, sigs)
+                    if cal_manual and abs(cal_manual["m"]) > 1e-12:
+                        xi = -cal_manual["b"] / cal_manual["m"]
+                        cal_manual["xi"] = xi; cal_manual["c_sample"] = abs(xi)
+                        st.session_state["cal_result"] = cal_manual
+                        st.session_state["cal_inverted"] = False
+                        st.success(f"Concentración estimada: **{abs(xi):.4f}**")
+                    else:
+                        st.error("No se pudo calcular la regresión. Verifique los datos.")
 
-        # ─── TABLA DE DATOS EXTRAÍDOS ──────────────────────────────────────
+        # ========== SELECTOR DE CANAL (para calibración externa) ==========
+        all_signals = st.session_state.get("all_signals", {})
+        if all_signals and cal_method == "Calibración externa (estándares)":
+            st.markdown("---")
+            st.markdown("### 🎯 Selección del canal para cuantificación")
+            signal_options = list(all_signals.keys())
+            default_idx = signal_options.index(st.session_state.get("selected_signal", signal_options[0])) if st.session_state.get("selected_signal") in signal_options else 0
+            
+            best_signal = st.session_state.get("best_signal", signal_options[0])
+            st.info(f"💡 **Canal recomendado por IDA:** `{best_signal}`")
+            
+            sel_ch = st.selectbox(
+                "Canal seleccionado:",
+                options=signal_options,
+                index=default_idx,
+                format_func=lambda x: f"{x} (R²={all_signals[x]['cal']['r2']:.4f})" if all_signals[x].get('cal') else x,
+                key="channel_selector_ext"
+            )
+            if sel_ch != st.session_state.get("selected_signal"):
+                st.session_state["selected_signal"] = sel_ch
+            
+            info = all_signals[sel_ch]
+            st.session_state.update({"cal_result":info["cal"],"cal_sigs":info["sigs"],"cal_lod":info["lod"],"cal_loq":info["loq"],"cal_sy_x":info["sy_x"],"cal_inverted":info["inverted"]})
+            cal = info["cal"]; concs = st.session_state.get("cal_concs")
+            if concs is not None and cal is not None:
+                fig = plot_cal(concs, info["sigs"], cal, sel_ch, "Fenólicos totales", st.session_state.get("cal_unit","mg/L"), info["lod"], info["loq"],
+                               next((item["IDA"] for item in st.session_state.get("ida_df",[]) if item["signal"]+("_inv" if item["inverted"] else "")==sel_ch), None))
+                st.plotly_chart(fig, use_container_width=True)
+                slope_msg, slope_col = interpret_slope(cal["m"])
+                st.markdown(f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};padding:10px;">{slope_msg}</div>',unsafe_allow_html=True)
+
+        # ========== DATOS EXTRAÍDOS (SIEMPRE VISIBLE) ======================
         df_signals=st.session_state.get("df_signals")
         if df_signals is not None:
+            st.markdown("---")
             st.markdown("### 📊 Datos extraídos")
             st.dataframe(df_signals, use_container_width=True)
             csv_data = df_signals.to_csv(index=False).encode('utf-8')
             st.download_button("⬇ Descargar datos crudos CSV", csv_data, "elementa_datos_crudos.csv", "text/csv", key="dl_crudos")
 
-        # ─── TABLA COMPARATIVA ────────────────────────────────────────────
+        # ========== TABLA COMPARATIVA (SOLO CALIBRACIÓN EXTERNA) ==========
         ida_df=st.session_state.get("ida_df")
-        if ida_df is not None:
+        if ida_df is not None and cal_method == "Calibración externa (estándares)":
+            st.markdown("---")
             st.markdown("### Comparación gráfica de R²")
             st.plotly_chart(plot_r2_bars(ida_df), use_container_width=True)
             st.markdown("### Tabla comparativa")
             st.dataframe(pd.DataFrame(ida_df)[["signal","type","m_orig","m_final","r2","sy_x","lod","loq","IDA","inverted"]].round(4), use_container_width=True)
 
-        # ─── CUANTIFICACIÓN ───────────────────────────────────────────────
+        # ========== CUANTIFICACIÓN =========================================
         cal = st.session_state.get("cal_result")
         if cal is not None and cal_method != "Adición de estándar":
             st.markdown("---"); slbl("Cuantificación")
@@ -1010,9 +1083,9 @@ if pagina=="Análisis":
 
 elif pagina=="Tutorial":
     st.markdown("<h1>Guía de inicio rápido</h1>",unsafe_allow_html=True)
-    for t,c in [("Paso 1","Prepare estándares y blanco."),("Paso 2","Capture imagen PNG con iluminación controlada."),
-                ("Paso 3","Defina ROIs sobre pocillos/tubos."),("Paso 4","Asigne tipos y concentraciones."),
-                ("Paso 5","Seleccione el canal deseado o use el recomendado por IDA."),("Paso 6","Cuantifique y exporte el PDF.")]:
+    for t,c in [("Paso 1","Prepare estándares y blanco."),("Paso 2","Capture imagen PNG."),
+                ("Paso 3","Defina ROIs."),("Paso 4","Asigne tipos y concentraciones."),
+                ("Paso 5","Seleccione canal (IDA recomienda el mejor)."),("Paso 6","Cuantifique y exporte PDF.")]:
         with st.expander(t,expanded=False): st.markdown(c)
     footer()
 
