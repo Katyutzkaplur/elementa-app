@@ -96,11 +96,8 @@ def interpret_r2(r2):
     return "Revisar calibración", DANGER
 
 def interpret_slope(m):
-    if m > 0:
-        return "Relación directa: la señal aumenta con la concentración.", ACCENT
-    else:
-        return ("Relación inversa: la señal disminuye con la concentración. "
-                "Esto puede ser normal dependiendo del canal o transformación digital utilizada.", WARNING)
+    if m > 0: return "Relación directa: la señal aumenta con la concentración.", ACCENT
+    else: return ("Relación inversa: la señal disminuye con la concentración. Esto puede ser normal.", WARNING)
 
 # ─── Biblioteca de Protocolos Analíticos ─────────────────────────────────────
 PROTOCOL_LIBRARY = {
@@ -138,24 +135,18 @@ def check_image_quality(img: np.ndarray) -> dict:
         return "fail"
 
     return {
-        "focus":       {"val": round(lap_var,1),  "label": f"Enfoque (varianza Laplaciano): {lap_var:.0f}",
-                        "grade": grade(lap_var, (80,1e9), (40,1e9))},
-        "brightness":  {"val": round(brightness,1),"label": f"Brillo medio: {brightness:.0f}/255",
-                        "grade": grade(brightness, (60,200), (30,230))},
-        "saturation":  {"val": round(sat_mean,1),  "label": f"Saturación media (HSV): {sat_mean:.0f}/255",
-                        "grade": grade(sat_mean, (20,1e9), (10,1e9))},
-        "overexposure":{"val": round(overexp,1),   "label": f"Píxeles sobreexpuestos: {overexp:.1f}%",
-                        "grade": grade(overexp, (0,5), (0,15))},
-        "underexposure":{"val": round(underexp,1), "label": f"Píxeles subexpuestos: {underexp:.1f}%",
-                        "grade": grade(underexp, (0,5), (0,15))},
+        "focus":       {"val": round(lap_var,1),  "label": f"Enfoque: {lap_var:.0f}", "grade": grade(lap_var, (80,1e9), (40,1e9))},
+        "brightness":  {"val": round(brightness,1),"label": f"Brillo: {brightness:.0f}/255", "grade": grade(brightness, (60,200), (30,230))},
+        "saturation":  {"val": round(sat_mean,1),  "label": f"Saturación: {sat_mean:.0f}/255", "grade": grade(sat_mean, (20,1e9), (10,1e9))},
+        "overexposure":{"val": round(overexp,1),   "label": f"Sobreexpuestos: {overexp:.1f}%", "grade": grade(overexp, (0,5), (0,15))},
+        "underexposure":{"val": round(underexp,1), "label": f"Subexpuestos: {underexp:.1f}%", "grade": grade(underexp, (0,5), (0,15))},
     }
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  STREAMLIT CONFIG + CSS
 # ══════════════════════════════════════════════════════════════════════════════
 
-st.set_page_config(page_title="Elementa v1", page_icon=None, layout="wide",
-                   initial_sidebar_state="expanded")
+st.set_page_config(page_title="Elementa v1", page_icon=None, layout="wide", initial_sidebar_state="expanded")
 
 st.markdown(f"""
 <style>
@@ -163,29 +154,24 @@ st.markdown(f"""
 *,*::before,*::after{{box-sizing:border-box;}}
 html,body,.stApp{{background:{BG};color:{TEXT};font-family:'Inter',sans-serif;}}
 [data-testid="stSidebar"]{{background:{PRIMARY};border-right:1px solid {BORDER};}}
-h1{{font-size:1.55rem;font-weight:700;color:{TEXT};letter-spacing:-.02em;margin-bottom:.2rem;}}
+h1{{font-size:1.55rem;font-weight:700;color:{TEXT};}}
 h2{{font-size:1.1rem;font-weight:600;color:{TEXT};}}
 h3{{font-size:.9rem;font-weight:600;color:{MUTED};text-transform:uppercase;letter-spacing:.07em;}}
-.mc{{background:{CARD};border:1px solid {BORDER};border-radius:8px;padding:14px 18px;transition:border-color .2s;}}
+.mc{{background:{CARD};border:1px solid {BORDER};border-radius:8px;padding:14px 18px;}}
 .mc:hover{{border-color:{ACCENT};}}
-.mc .lbl{{font-size:.67rem;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:{MUTED};margin:0 0 5px 0;}}
-.mc .val{{font-size:1.4rem;font-weight:700;color:{TEXT};margin:0;font-family:'JetBrains Mono',monospace;}}
-.mc .itp{{font-size:.72rem;margin:3px 0 0 0;font-style:italic;}}
-.mc .exp{{font-size:.7rem;color:{MUTED};margin:6px 0 0 0;line-height:1.45;border-top:1px solid {BORDER};padding-top:5px;}}
-.info-box{{background:{PRIMARY};border-left:3px solid {ACCENT};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#93C5FD;margin:8px 0;line-height:1.5;}}
-.warn-box{{background:{PRIMARY};border-left:3px solid {DANGER};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#FCA5A5;margin:8px 0;line-height:1.5;}}
-.ok-box{{background:{PRIMARY};border-left:3px solid {SUCCESS};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#6EE7B7;margin:8px 0;line-height:1.5;}}
-.slbl{{font-size:.64rem;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:{ACCENT};margin:0 0 4px 0;}}
-.badge-pass{{background:#052e16;color:#4ADE80;padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:700;border:1px solid #166534;}}
-.badge-fail{{background:#450a0a;color:#F87171;padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:700;border:1px solid #991b1b;}}
-.badge-none{{background:{CARD};color:{MUTED};padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:600;border:1px solid {BORDER};}}
+.mc .lbl{{font-size:.67rem;font-weight:600;text-transform:uppercase;color:{MUTED};}}
+.mc .val{{font-size:1.4rem;font-weight:700;color:{TEXT};font-family:'JetBrains Mono',monospace;}}
+.info-box{{background:{PRIMARY};border-left:3px solid {ACCENT};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#93C5FD;margin:8px 0;}}
+.warn-box{{background:{PRIMARY};border-left:3px solid {DANGER};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#FCA5A5;margin:8px 0;}}
+.ok-box{{background:{PRIMARY};border-left:3px solid {SUCCESS};border-radius:0 6px 6px 0;padding:10px 14px;font-size:.82rem;color:#6EE7B7;margin:8px 0;}}
+.slbl{{font-size:.64rem;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:{ACCENT};}}
+.badge-pass{{background:#052e16;color:#4ADE80;padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:700;}}
+.badge-fail{{background:#450a0a;color:#F87171;padding:3px 10px;border-radius:3px;font-size:.75rem;font-weight:700;}}
 .footer{{text-align:center;color:{MUTED};font-size:.7rem;padding:28px 0 10px;margin-top:48px;border-top:1px solid {BORDER};}}
-.stButton>button{{background:{ACCENT};color:#fff;border:none;border-radius:6px;padding:9px 22px;font-weight:600;font-size:.84rem;letter-spacing:.02em;font-family:'Inter',sans-serif;transition:background .2s;}}
+.stButton>button{{background:{ACCENT};color:#fff;border:none;border-radius:6px;padding:9px 22px;font-weight:600;}}
 .stButton>button:hover{{background:#1D4ED8;}}
-.stTabs [data-baseweb="tab-list"]{{gap:2px;border-bottom:1px solid {BORDER};}}
-.stTabs [data-baseweb="tab"]{{background:transparent;color:{MUTED};font-weight:500;font-size:.85rem;padding:10px 20px;border-radius:6px 6px 0 0;}}
-.stTabs [aria-selected="true"]{{background:{CARD} !important;color:{TEXT} !important;border-bottom:2px solid {ACCENT} !important;}}
-.stDownloadButton button {{background: {SUCCESS} !important; color: white !important;}}
+.stTabs [aria-selected="true"]{{background:{CARD}!important;color:{TEXT}!important;border-bottom:2px solid {ACCENT}!important;}}
+.stDownloadButton button{{background:{SUCCESS}!important;color:white!important;}}
 </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -201,8 +187,7 @@ def gen_rois_linear(x0,y0,w,h,n,dx,dy):
 
 def gen_rois_plate(x0,y0,w,h,dx,dy,rows=8,cols=12):
     rl="ABCDEFGH"
-    return [{"x":int(x0+c*dx),"y":int(y0+r*dy),"w":int(w),"h":int(h),"label":f"{rl[r]}{c+1}"}
-            for r in range(rows) for c in range(cols)]
+    return [{"x":int(x0+c*dx),"y":int(y0+r*dy),"w":int(w),"h":int(h),"label":f"{rl[r]}{c+1}"} for r in range(rows) for c in range(cols)]
 
 def gen_rois_tubes(x0,y0,radius,h,ntubes,dx):
     rois = []
@@ -210,8 +195,7 @@ def gen_rois_tubes(x0,y0,radius,h,ntubes,dx):
         x_center = x0 + i*dx
         y_positions = [y0 + int(h * 0.25), y0 + int(h * 0.5), y0 + int(h * 0.75)]
         for j, yc in enumerate(y_positions):
-            label = f"Tubo{i+1}"
-            suf = ["_Sup","_Med","_Inf"][j]
+            label = f"Tubo{i+1}"; suf = ["_Sup","_Med","_Inf"][j]
             rois.append({"x": x_center - radius, "y": yc - radius, "w": 2*radius, "h": 2*radius,
                          "label": label+suf, "cx": x_center, "cy": yc, "radius": radius, "tube_id": i+1})
     return rois
@@ -220,12 +204,10 @@ def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
     out = img.copy()
     for roi in rois:
         tipo = (type_map or {}).get(roi["label"], "Sin asignar")
-        rgb  = TIPO_BGR.get(tipo, (30, 41, 59))
-        bgr  = (rgb[2], rgb[1], rgb[0])
+        rgb  = TIPO_BGR.get(tipo, (30, 41, 59)); bgr = (rgb[2], rgb[1], rgb[0])
         if "cx" in roi and "cy" in roi and "radius" in roi:
             cx, cy, r = roi["cx"], roi["cy"], roi["radius"]
-            cv2.circle(out, (cx, cy), r, bgr, 2)
-            cv2.circle(out, (cx, cy), 2, bgr, -1)
+            cv2.circle(out, (cx, cy), r, bgr, 2); cv2.circle(out, (cx, cy), 2, bgr, -1)
             x_text, y_text = cx - 10, cy - r - 5
         else:
             x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
@@ -233,8 +215,7 @@ def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
                 diam = (diam_map or {}).get(roi["label"], min(w, h))
                 cx, cy, r = x + w//2, y + h//2, diam//2
                 cv2.circle(out, (cx, cy), r, bgr, 2); cv2.circle(out, (cx, cy), 2, bgr, -1)
-            else:
-                cv2.rectangle(out, (x, y), (x+w, y+h), bgr, 2)
+            else: cv2.rectangle(out, (x, y), (x+w, y+h), bgr, 2)
             x_text, y_text = x, max(y-3, 10)
         short = TIPO_SHORT.get(tipo, "")
         cv2.putText(out, roi["label"], (x_text, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.35, bgr, 1, cv2.LINE_AA)
@@ -244,143 +225,115 @@ def draw_rois(img, rois, type_map=None, circular=False, diam_map=None):
     return out
 
 def plot_plate_grid(asgn_df):
-    rl = list("ABCDEFGH")
-    all_rows = sorted(set(r for r in rl if any(r in roi for roi in asgn_df["ROI"])), key=lambda x: rl.index(x))
-    all_cols = sorted(set(int("".join(c for c in roi if c.isdigit())) for roi in asgn_df["ROI"] if any(c.isdigit() for c in roi)))
-    if not all_rows or not all_cols:
-        return go.Figure()
-    
-    tipo_map = dict(zip(asgn_df["ROI"], asgn_df["Tipo"]))
-    conc_map = dict(zip(asgn_df["ROI"], asgn_df["Concentracion"]))
-    nombre_map = dict(zip(asgn_df["ROI"], asgn_df.get("Nombre", [""]*len(asgn_df))))
-    
-    z, txt, hov = [], [], []
+    rl=list("ABCDEFGH")
+    all_rows=sorted(set(r for r in rl if any(r in roi for roi in asgn_df["ROI"])),key=lambda x:rl.index(x))
+    all_cols=sorted(set(int("".join(c for c in roi if c.isdigit())) for roi in asgn_df["ROI"] if any(c.isdigit() for c in roi)))
+    if not all_rows or not all_cols: return go.Figure()
+    tipo_map=dict(zip(asgn_df["ROI"],asgn_df["Tipo"]))
+    conc_map=dict(zip(asgn_df["ROI"],asgn_df["Concentracion"]))
+    z,txt,hov=[],[],[]
     for rw in all_rows:
-        zr, tr, hr = [], [], []
+        zr,tr,hr=[],[],[]
         for cl in all_cols:
-            roi = f"{rw}{cl}"
-            tipo = tipo_map.get(roi, "Sin asignar")
-            conc = conc_map.get(roi, "")
-            nombre = nombre_map.get(roi, "")
-            short = TIPO_SHORT.get(tipo, "--")
-            idx = {"Blanco":1,"Estándar":2,"Muestra":3,"Control":4,"Adición estándar":5}.get(tipo, 0)
-            zr.append(idx)
-            tr.append(f"{short}")
-            ht = f"<b>{roi}</b><br>{tipo}"
-            if conc and conc != 0:
-                ht += f"<br>Conc: {conc}"
-            if nombre:
-                ht += f"<br>{nombre}"
+            roi=f"{rw}{cl}"; tipo=tipo_map.get(roi,"Sin asignar"); conc=conc_map.get(roi,"")
+            short=TIPO_SHORT.get(tipo,"--"); idx={"Blanco":1,"Estándar":2,"Muestra":3,"Control":4,"Adición estándar":5}.get(tipo,0)
+            zr.append(idx); tr.append(f"{short}")
+            ht=f"<b>{roi}</b><br>{tipo}"
+            if conc and conc!=0: ht+=f"<br>Conc: {conc}"
             hr.append(ht)
         z.append(zr); txt.append(tr); hov.append(hr)
-    
-    colorscale = [[0,"#1E293B"],[0.2,"#0C2540"],[0.4,"#052e16"],[0.6,"#0D2159"],[0.8,"#2D0A3E"],[1.0,"#1e293b"]]
-    fig = go.Figure(go.Heatmap(
-        z=z, text=txt, texttemplate="%{text}", customdata=hov, hovertemplate="%{customdata}<extra></extra>",
-        colorscale=colorscale, showscale=False, xgap=2, ygap=2, zmin=0, zmax=5,
-        textfont=dict(family="JetBrains Mono", size=8, color=TEXT)
-    ))
-    fig.update_xaxes(tickvals=list(range(len(all_cols))), ticktext=[str(c) for c in all_cols],
-                     side="top", showgrid=False, tickfont=dict(size=9, color=MUTED))
-    fig.update_yaxes(tickvals=list(range(len(all_rows))), ticktext=all_rows,
-                     autorange="reversed", showgrid=False, tickfont=dict(size=9, color=MUTED))
-    fig.update_layout(template="plotly_dark", paper_bgcolor=PLOT_BG, plot_bgcolor=PLOT_BG,
-                      font=dict(family="Inter,sans-serif",color=TEXT,size=11),
-                      margin=dict(l=52,r=20,t=48,b=48), height=max(220,50*len(all_rows)+80),
-                      title=dict(text="Mapa de placa", font=dict(size=12, color=TEXT)))
+    colorscale=[[0,"#1E293B"],[0.2,"#0C2540"],[0.4,"#052e16"],[0.6,"#0D2159"],[0.8,"#2D0A3E"],[1.0,"#1e293b"]]
+    fig=go.Figure(go.Heatmap(z=z,text=txt,texttemplate="%{text}",customdata=hov,hovertemplate="%{customdata}<extra></extra>",
+        colorscale=colorscale,showscale=False,xgap=2,ygap=2,zmin=0,zmax=5,textfont=dict(family="JetBrains Mono",size=8,color=TEXT)))
+    fig.update_xaxes(tickvals=list(range(len(all_cols))),ticktext=[str(c) for c in all_cols],side="top",showgrid=False,tickfont=dict(size=9,color=MUTED))
+    fig.update_yaxes(tickvals=list(range(len(all_rows))),ticktext=all_rows,autorange="reversed",showgrid=False,tickfont=dict(size=9,color=MUTED))
+    fig.update_layout(template="plotly_dark",paper_bgcolor=PLOT_BG,plot_bgcolor=PLOT_BG,font=dict(family="Inter,sans-serif",color=TEXT,size=11),
+        margin=dict(l=52,r=20,t=48,b=48),height=max(220,50*len(all_rows)+80),title=dict(text="Mapa de placa",font=dict(size=12,color=TEXT)))
     return fig
 
 def plot_r2_bars(ida_df):
     if ida_df is None: return go.Figure()
-    if isinstance(ida_df, list):
-        if len(ida_df) == 0: return go.Figure()
-        df = pd.DataFrame(ida_df)
-    elif isinstance(ida_df, pd.DataFrame):
+    if isinstance(ida_df,list):
+        if len(ida_df)==0: return go.Figure()
+        df=pd.DataFrame(ida_df)
+    elif isinstance(ida_df,pd.DataFrame):
         if ida_df.empty: return go.Figure()
-        df = ida_df.copy()
+        df=ida_df.copy()
     else: return go.Figure()
-    df = df.sort_values("r2", ascending=False)
-    labels = df["signal"].tolist()
-    r2_vals = df["r2"].tolist()
-    best_idx = df["IDA"].idxmax() if "IDA" in df.columns else 0
-    colors = [SUCCESS if i == best_idx else ACCENT for i in range(len(labels))]
-    fig = go.Figure(go.Bar(x=labels, y=r2_vals, marker_color=colors,
-        text=[f"{v:.4f}" for v in r2_vals], textposition="outside",
-        textfont=dict(color=TEXT, size=9, family="JetBrains Mono"),
-        hovertemplate="<b>%{x}</b><br>R²=%{y:.5f}<extra></extra>"))
-    fig.update_layout(template="plotly_dark", paper_bgcolor=PLOT_BG, plot_bgcolor=PLOT_BG,
-        font=dict(family="Inter,sans-serif", color=TEXT, size=11),
-        margin=dict(l=52, r=20, t=48, b=80), height=400,
-        title=dict(text="Comparación de R² por señal", font=dict(size=14, color=TEXT)),
-        xaxis_title="Señal digital", yaxis_title="R²", xaxis_tickangle=-45)
+    df=df.sort_values("r2",ascending=False)
+    labels=df["signal"].tolist(); r2_vals=df["r2"].tolist()
+    best_idx=df["IDA"].idxmax() if "IDA" in df.columns else 0
+    colors=[SUCCESS if i==best_idx else ACCENT for i in range(len(labels))]
+    fig=go.Figure(go.Bar(x=labels,y=r2_vals,marker_color=colors,text=[f"{v:.4f}" for v in r2_vals],textposition="outside",
+        textfont=dict(color=TEXT,size=9,family="JetBrains Mono"),hovertemplate="<b>%{x}</b><br>R²=%{y:.5f}<extra></extra>"))
+    fig.update_layout(template="plotly_dark",paper_bgcolor=PLOT_BG,plot_bgcolor=PLOT_BG,font=dict(family="Inter,sans-serif",color=TEXT,size=11),
+        margin=dict(l=52,r=20,t=48,b=80),height=400,title=dict(text="Comparación de R² por señal",font=dict(size=14,color=TEXT)),
+        xaxis_title="Señal digital",yaxis_title="R²",xaxis_tickangle=-45)
     return fig
 
 # ─── Extracción de señales, absorbancias, regresión ──────────────────────────
 def extract_all_signals(img, rois, circular=True, diam_map=None):
-    H, W = img.shape[:2]; rows = []
-    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV).astype(float)
-    img_lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB).astype(float)
+    H,W=img.shape[:2]; rows=[]
+    img_bgr=cv2.cvtColor(img,cv2.COLOR_RGB2BGR)
+    img_hsv=cv2.cvtColor(img_bgr,cv2.COLOR_BGR2HSV).astype(float)
+    img_lab=cv2.cvtColor(img_bgr,cv2.COLOR_BGR2LAB).astype(float)
     for roi in rois:
         if circular and "cx" in roi and "cy" in roi and "radius" in roi:
-            cx,cy,r = roi["cx"],roi["cy"],roi["radius"]
-            x1,y1,x2,y2 = max(0,cx-r),max(0,cy-r),min(W,cx+r),min(H,cy+r)
-            crop = img[y1:y2,x1:x2]
+            cx,cy,r=roi["cx"],roi["cy"],roi["radius"]
+            x1,y1,x2,y2=max(0,cx-r),max(0,cy-r),min(W,cx+r),min(H,cy+r)
+            crop=img[y1:y2,x1:x2]
             if crop.size==0: rows.append(empty_row(roi["label"])); continue
-            Yg,Xg = np.ogrid[:crop.shape[0],:crop.shape[1]]
-            mask = ((Yg-(cy-y1))**2+(Xg-(cx-x1))**2)<=r**2
-            sl = (slice(y1,y2),slice(x1,x2))
+            Yg,Xg=np.ogrid[:crop.shape[0],:crop.shape[1]]
+            mask=((Yg-(cy-y1))**2+(Xg-(cx-x1))**2)<=r**2
+            sl=(slice(y1,y2),slice(x1,x2))
         else:
-            x,y,w,h = roi["x"],roi["y"],roi["w"],roi["h"]
-            sl = (slice(max(0,y),min(H,y+h)),slice(max(0,x),min(W,x+w)))
-            mask = np.ones((sl[0].stop-sl[0].start,sl[1].stop-sl[1].start),bool)
+            x,y,w,h=roi["x"],roi["y"],roi["w"],roi["h"]
+            sl=(slice(max(0,y),min(H,y+h)),slice(max(0,x),min(W,x+w)))
+            mask=np.ones((sl[0].stop-sl[0].start,sl[1].stop-sl[1].start),bool)
         def ch(arr2d):
-            v = arr2d[sl][mask].ravel() if arr2d[sl].shape[:2]==mask.shape else arr2d[sl].ravel()
+            v=arr2d[sl][mask].ravel() if arr2d[sl].shape[:2]==mask.shape else arr2d[sl].ravel()
             return (float(v.mean()),float(v.std())) if v.size else (np.nan,np.nan)
         rm,rs=ch(img[:,:,0]); gm,gs=ch(img[:,:,1]); bm,bs=ch(img[:,:,2])
         hm,hs=ch(img_hsv[:,:,0]); sm2,ss2=ch(img_hsv[:,:,1]); vm,vs=ch(img_hsv[:,:,2])
         lm,ls2=ch(img_lab[:,:,0]); am,as2=ch(img_lab[:,:,1]); blm,bls=ch(img_lab[:,:,2])
-        eps=1e-9; tot=rm+gm+bm+eps; rn,gn,bn = rm/tot,gm/tot,bm/tot
+        eps=1e-9; tot=rm+gm+bm+eps; rn,gn,bn=rm/tot,gm/tot,bm/tot
         rows.append({"ROI":roi["label"],"R":round(rm,2),"G":round(gm,2),"B":round(bm,2),
-                     "R_sd":round(rs,2),"G_sd":round(gs,2),"B_sd":round(bs,2),
-                     "R_norm":round(rn*100,3),"G_norm":round(gn*100,3),"B_norm":round(bn*100,3),
-                     "R+G":round(rm+gm,2),"R+B":round(rm+bm,2),"G+B":round(gm+bm,2),"R+G+B":round(tot,2),
-                     "R_norm+G_norm":round((rn+gn)*100,3),"R_norm+B_norm":round((rn+bn)*100,3),"G_norm+B_norm":round((gn+bn)*100,3),
-                     "H":round(hm,2),"S":round(sm2,2),"V":round(vm,2),
-                     "L":round(lm,2),"a":round(am,2),"b_lab":round(blm,2)})
+            "R_sd":round(rs,2),"G_sd":round(gs,2),"B_sd":round(bs,2),
+            "R_norm":round(rn*100,3),"G_norm":round(gn*100,3),"B_norm":round(bn*100,3),
+            "R+G":round(rm+gm,2),"R+B":round(rm+bm,2),"G+B":round(gm+bm,2),"R+G+B":round(tot,2),
+            "R_norm+G_norm":round((rn+gn)*100,3),"R_norm+B_norm":round((rn+bn)*100,3),"G_norm+B_norm":round((gn+bn)*100,3),
+            "H":round(hm,2),"S":round(sm2,2),"V":round(vm,2),"L":round(lm,2),"a":round(am,2),"b_lab":round(blm,2)})
     return pd.DataFrame(rows)
 
 def empty_row(label):
     return {"ROI":label,"R":np.nan,"G":np.nan,"B":np.nan,"R_sd":np.nan,"G_sd":np.nan,"B_sd":np.nan,
-            "R_norm":np.nan,"G_norm":np.nan,"B_norm":np.nan,
-            "R+G":np.nan,"R+B":np.nan,"G+B":np.nan,"R+G+B":np.nan,
-            "R_norm+G_norm":np.nan,"R_norm+B_norm":np.nan,"G_norm+B_norm":np.nan,
-            "H":np.nan,"S":np.nan,"V":np.nan,"L":np.nan,"a":np.nan,"b_lab":np.nan}
+        "R_norm":np.nan,"G_norm":np.nan,"B_norm":np.nan,"R+G":np.nan,"R+B":np.nan,"G+B":np.nan,"R+G+B":np.nan,
+        "R_norm+G_norm":np.nan,"R_norm+B_norm":np.nan,"G_norm+B_norm":np.nan,"H":np.nan,"S":np.nan,"V":np.nan,"L":np.nan,"a":np.nan,"b_lab":np.nan}
 
 def add_euclidean_distance(df, blank_row):
     if blank_row is None or blank_row.empty: df["ED"]=df["ED_norm"]=np.nan; return df
-    b = blank_row.iloc[0]
-    df["ED"] = np.sqrt((df["R"]-b["R"])**2+(df["G"]-b["G"])**2+(df["B"]-b["B"])**2)
-    df["ED_norm"] = np.sqrt((df["R_norm"]-b["R_norm"])**2+(df["G_norm"]-b["G_norm"])**2+(df["B_norm"]-b["B_norm"])**2)
+    b=blank_row.iloc[0]
+    df["ED"]=np.sqrt((df["R"]-b["R"])**2+(df["G"]-b["G"])**2+(df["B"]-b["B"])**2)
+    df["ED_norm"]=np.sqrt((df["R_norm"]-b["R_norm"])**2+(df["G_norm"]-b["G_norm"])**2+(df["B_norm"]-b["B_norm"])**2)
     return df
 
 def compute_absorbances(df, blank_label, signal_columns):
     if blank_label is None or blank_label not in df["ROI"].values:
         for col in signal_columns: df[f"A_{col}"]=df[f"A_inv_{col}"]=np.nan
         return df
-    blank = df[df["ROI"]==blank_label].iloc[0]
+    blank=df[df["ROI"]==blank_label].iloc[0]
     for col in signal_columns:
-        bv = blank[col]
+        bv=blank[col]
         if np.isnan(bv) or bv==0: df[f"A_{col}"]=df[f"A_inv_{col}"]=np.nan; continue
         eps=1e-9
-        df[f"A_{col}"] = df[col].apply(lambda v: math.log10((bv+eps)/(v+eps)) if pd.notna(v) and v>0 else np.nan)
-        df[f"A_inv_{col}"] = df[col].apply(lambda v: math.log10((v+eps)/(bv+eps)) if pd.notna(v) and v>0 else np.nan)
+        df[f"A_{col}"]=df[col].apply(lambda v: math.log10((bv+eps)/(v+eps)) if pd.notna(v) and v>0 else np.nan)
+        df[f"A_inv_{col}"]=df[col].apply(lambda v: math.log10((v+eps)/(bv+eps)) if pd.notna(v) and v>0 else np.nan)
     return df
 
 def fit_line(x, y):
-    mask = ~(np.isnan(x)|np.isnan(y)); x,y = x[mask],y[mask]
+    mask=~(np.isnan(x)|np.isnan(y)); x,y=x[mask],y[mask]
     if len(x)<2 or len(np.unique(x))<2: return None
-    m,b,r,_,se = stats.linregress(x,y)
+    m,b,r,_,se=stats.linregress(x,y)
     return {"m":m,"b":b,"r2":r**2,"se":se,"n":len(x),"res":y-(m*x+b),"x_fit":x,"y_fit":y}
 
 def calc_sy_x(cal):
@@ -389,58 +342,52 @@ def calc_sy_x(cal):
 
 def calc_lod_loq(cal, sy_x):
     if sy_x is None or np.isnan(sy_x): return np.nan,np.nan
-    m = abs(cal["m"])
+    m=abs(cal["m"])
     if m<1e-12: return np.nan,np.nan
     return 3.3*sy_x/m, 10*sy_x/m
 
 def compute_ida(r2, sy_x, slope, lod, loq, cv=None, w=None):
-    if w is None: w = {"r2":0.30,"sy_x":0.25,"slope":0.15,"lod":0.10,"loq":0.10,"cv":0.10}
+    if w is None: w={"r2":0.30,"sy_x":0.25,"slope":0.15,"lod":0.10,"loq":0.10,"cv":0.10}
     return {"r2":r2,"sy_x":sy_x,"slope":slope,"lod":lod,"loq":loq,"cv":cv if cv else np.nan}
 
 def normalize_ida_params(ida_list):
     if not ida_list: return ida_list
-    df = pd.DataFrame(ida_list)
+    df=pd.DataFrame(ida_list)
     for col in ["r2","slope"]:
         if col in df.columns:
-            mn,mx = df[col].min(),df[col].max()
-            df[f"{col}_norm"] = ((df[col]-mn)/(mx-mn)*100) if mx>mn else 100
+            mn,mx=df[col].min(),df[col].max()
+            df[f"{col}_norm"]=((df[col]-mn)/(mx-mn)*100) if mx>mn else 100
     for col in ["sy_x","lod","loq","cv"]:
         if col in df.columns:
-            mn,mx = df[col].min(),df[col].max()
-            df[f"{col}_norm"] = ((1-(df[col]-mn)/(mx-mn))*100) if mx>mn else 100
-    w = {"r2":0.30,"sy_x":0.25,"slope":0.15,"lod":0.10,"loq":0.10,"cv":0.10}
-    df["IDA"] = 0
+            mn,mx=df[col].min(),df[col].max()
+            df[f"{col}_norm"]=((1-(df[col]-mn)/(mx-mn))*100) if mx>mn else 100
+    w={"r2":0.30,"sy_x":0.25,"slope":0.15,"lod":0.10,"loq":0.10,"cv":0.10}
+    df["IDA"]=0
     for k,weight in w.items():
-        if f"{k}_norm" in df.columns: df["IDA"] += df[f"{k}_norm"]*weight
+        if f"{k}_norm" in df.columns: df["IDA"]+=df[f"{k}_norm"]*weight
     return df.to_dict(orient="records")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  GRÁFICAS
 # ══════════════════════════════════════════════════════════════════════════════
 
-_PLT = dict(template="plotly_dark", paper_bgcolor=PLOT_BG, plot_bgcolor=PLOT_BG,
-            font=dict(family="Inter,sans-serif",color=TEXT,size=11), margin=dict(l=52,r=20,t=48,b=48))
+_PLT=dict(template="plotly_dark",paper_bgcolor=PLOT_BG,plot_bgcolor=PLOT_BG,
+    font=dict(family="Inter,sans-serif",color=TEXT,size=11),margin=dict(l=52,r=20,t=48,b=48))
 
 def plot_cal(concs, sigs, cal, ch, analyte, unit, lod, loq, ida=None):
-    x0 = max(0,float(concs.min())*0.85) if float(concs.min())>0 else 0.0
-    x1 = float(concs.max())*1.15; xl = np.linspace(x0,x1,300)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=concs,y=sigs,mode="markers",
-        marker=dict(color=ACCENT,size=10,line=dict(color=PLOT_BG,width=1.5)),name="Estándares"))
-    fig.add_trace(go.Scatter(x=xl,y=cal["m"]*xl+cal["b"],mode="lines",
-        line=dict(color=SUCCESS,width=2.2),name="Regresión lineal"))
-    if not np.isnan(lod): fig.add_vline(x=lod,line_dash="dot",line_color=DANGER,
-        annotation_text=f"LOD={lod:.3f}",annotation_font_color=DANGER,annotation_font_size=9)
-    if not np.isnan(loq): fig.add_vline(x=loq,line_dash="dot",line_color=WARNING,
-        annotation_text=f"LOQ={loq:.3f}",annotation_font_color=WARNING,annotation_font_size=9)
-    m,b,r2 = cal["m"],cal["b"],cal["r2"]; sgn = "+" if b>=0 else "-"
-    eq = f"A = {m:.4f}·C {sgn} {abs(b):.4f}   |   R² = {r2:.5f}"
-    if ida is not None: eq += f"   |   IDA = {ida:.1f}"
+    x0=max(0,float(concs.min())*0.85) if float(concs.min())>0 else 0.0
+    x1=float(concs.max())*1.15; xl=np.linspace(x0,x1,300)
+    fig=go.Figure()
+    fig.add_trace(go.Scatter(x=concs,y=sigs,mode="markers",marker=dict(color=ACCENT,size=10,line=dict(color=PLOT_BG,width=1.5)),name="Estándares"))
+    fig.add_trace(go.Scatter(x=xl,y=cal["m"]*xl+cal["b"],mode="lines",line=dict(color=SUCCESS,width=2.2),name="Regresión lineal"))
+    if not np.isnan(lod): fig.add_vline(x=lod,line_dash="dot",line_color=DANGER,annotation_text=f"LOD={lod:.3f}",annotation_font_color=DANGER,annotation_font_size=9)
+    if not np.isnan(loq): fig.add_vline(x=loq,line_dash="dot",line_color=WARNING,annotation_text=f"LOQ={loq:.3f}",annotation_font_color=WARNING,annotation_font_size=9)
+    m,b,r2=cal["m"],cal["b"],cal["r2"]; sgn="+" if b>=0 else "-"
+    eq=f"A = {m:.4f}·C {sgn} {abs(b):.4f}   |   R² = {r2:.5f}"
+    if ida is not None: eq+=f"   |   IDA = {ida:.1f}"
     fig.add_annotation(x=0.03,y=0.97,xref="paper",yref="paper",text=eq,showarrow=False,
-        font=dict(color="#4ADE80",size=10,family="JetBrains Mono"),
-        bgcolor="rgba(11,17,32,.85)",bordercolor=SUCCESS,borderwidth=1,borderpad=5)
-    fig.update_layout(**_PLT,title=f"Curva de calibración — {analyte} | Señal: {ch}",
-        xaxis_title=f"Concentración ({unit})",yaxis_title="Absorbancia digital")
+        font=dict(color="#4ADE80",size=10,family="JetBrains Mono"),bgcolor="rgba(11,17,32,.85)",bordercolor=SUCCESS,borderwidth=1,borderpad=5)
+    fig.update_layout(**_PLT,title=f"Curva de calibración — {analyte} | Señal: {ch}",xaxis_title=f"Concentración ({unit})",yaxis_title="Absorbancia digital")
     return fig
 
 def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
@@ -451,8 +398,7 @@ def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
         mask=~(np.isnan(concs)|np.isnan(sigs)); concs,sigs=concs[mask],sigs[mask]
         if len(concs)<2: return None
         BG2="#0f172a"; C2="#1e293b"; GRN="#4ade80"; BLU="#60a5fa"; RED2="#f87171"; ORG="#fb923c"; SUB="#94a3b8"; TXT2="#e2e8f0"
-        fig,ax=plt.subplots(figsize=(7.8,3.8))
-        fig.patch.set_facecolor(BG2); ax.set_facecolor(BG2)
+        fig,ax=plt.subplots(figsize=(7.8,3.8)); fig.patch.set_facecolor(BG2); ax.set_facecolor(BG2)
         ax.scatter(concs,sigs,color=GRN,s=60,zorder=5,edgecolors=BG2,linewidths=1.2,label="Estándares")
         xmn=float(concs.min())*0.85 if float(concs.min())>0 else 0.0; xmx=float(concs.max())*1.15
         if xmn==xmx: xmn-=0.1; xmx+=0.1
@@ -463,7 +409,7 @@ def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
         if loq is not None and not (isinstance(loq,float) and math.isnan(loq)): ax.axvline(loq,color=ORG,linestyle=":",linewidth=1.3); ax.text(loq,yb+yp,f"  LOQ={loq:.3f}",color=ORG,fontsize=7,va="bottom")
         m,b,r2=cal["m"],cal["b"],cal["r2"]; sgn="+" if b>=0 else "-"
         ax.text(0.03,0.97,f"y={m:.4f}x {sgn} {abs(b):.4f}  |  R²={r2:.5f}",transform=ax.transAxes,fontsize=8.5,color=GRN,va="top",ha="left",
-                bbox=dict(facecolor=C2,edgecolor="#166534",boxstyle="round,pad=0.35"))
+            bbox=dict(facecolor=C2,edgecolor="#166534",boxstyle="round,pad=0.35"))
         ax.set_xlabel(f"Concentración ({unit})",color=SUB,fontsize=9); ax.set_ylabel("Absorbancia digital",color=SUB,fontsize=9)
         ax.set_title(f"Curva de calibración — {analyte} | Canal: {ch}",color=TXT2,fontsize=10,pad=8)
         ax.tick_params(colors=SUB,labelsize=8)
@@ -482,23 +428,18 @@ def cal_to_png(cal, concs, sigs, ch, analyte, unit, lod, loq):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
-            cal_png_bytes,selected_signal,unit="mg/L", ida=None, inversion=False,
-            assignment_df=None):
+            cal_png_bytes,selected_signal,unit="mg/L", ida=None, inversion=False, assignment_df=None):
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.colors import HexColor, white
     from reportlab.lib.units import inch
-    from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame,
-                                     Paragraph, Spacer, Table, TableStyle,
+    from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle,
                                      Image as RLImage, HRFlowable, KeepTogether)
-    C={"bg":HexColor("#020617"),"card":HexColor("#1E293B"),"card2":HexColor("#263546"),
-       "acc":HexColor("#2563EB"),"grn":HexColor("#059669"),"red":HexColor("#DC2626"),
-       "txt":HexColor("#E2E8F0"),"mut":HexColor("#94A3B8"),"brd":HexColor("#334155"),
-       "nb":HexColor("#E8EDF3"),"nt":HexColor("#0A0A0A")}
-    PLATE_COLORS = {
-        "Blanco":HexColor("#0EA5E9"),"Estándar":HexColor("#059669"),"Muestra":HexColor("#2563EB"),
-        "Control":HexColor("#7C3AED"),"Adición estándar":HexColor("#DB2777"),"Sin asignar":HexColor("#1E293B"),
-    }
+    C={"bg":HexColor("#020617"),"card":HexColor("#1E293B"),"card2":HexColor("#263546"),"acc":HexColor("#2563EB"),
+       "grn":HexColor("#059669"),"red":HexColor("#DC2626"),"txt":HexColor("#E2E8F0"),"mut":HexColor("#94A3B8"),
+       "brd":HexColor("#334155"),"nb":HexColor("#E8EDF3"),"nt":HexColor("#0A0A0A")}
+    PLATE_COLORS={"Blanco":HexColor("#0EA5E9"),"Estándar":HexColor("#059669"),"Muestra":HexColor("#2563EB"),
+                  "Control":HexColor("#7C3AED"),"Adición estándar":HexColor("#DB2777"),"Sin asignar":HexColor("#1E293B")}
     buf=BytesIO()
     def bg(canvas,doc): canvas.saveState(); canvas.setFillColor(C["bg"]); canvas.rect(0,0,letter[0],letter[1],fill=1,stroke=0); canvas.restoreState()
     doc=BaseDocTemplate(buf,pagesize=letter,leftMargin=.5*inch,rightMargin=.5*inch,topMargin=.5*inch,bottomMargin=.5*inch)
@@ -525,7 +466,7 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         return t
     def fmt_val(value, decimals=2):
         if value is None: return "N/D"
-        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)): return "N/D"
+        if isinstance(value,float) and (math.isnan(value) or math.isinf(value)): return "N/D"
         try: return f"{float(value):.{decimals}f}"
         except: return str(value)
     def build_plate_grid_table(asgn_df):
@@ -559,8 +500,8 @@ def gen_pdf(analyte,method,df_signals,df_results,cal,annotated_img,tri_df,
         return t
     now=fmt_mx(); story=[]
     hdr=Table([[Paragraph("ELEMENTA v1",ts),
-                Paragraph(f"<b>Reporte de análisis colorimétrico</b><br/><font size='8'>{now}</font><br/><font size='8'>Analito: {analyte} | Método: {method} | λ ref: 760 nm</font>",
-                          ps("HR",textColor=C["txt"],fontSize=9,fontName="Helvetica",alignment=2))]],colWidths=[2.5*inch,4.8*inch])
+        Paragraph(f"<b>Reporte de análisis colorimétrico</b><br/><font size='8'>{now}</font><br/><font size='8'>Analito: {analyte} | Método: {method} | λ ref: 760 nm</font>",
+            ps("HR",textColor=C["txt"],fontSize=9,fontName="Helvetica",alignment=2))]],colWidths=[2.5*inch,4.8*inch])
     hdr.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),C["bg"]),("LEFTPADDING",(0,0),(-1,-1),10),
         ("RIGHTPADDING",(0,0),(-1,-1),10),("TOPPADDING",(0,0),(-1,-1),10),("BOTTOMPADDING",(0,0),(-1,-1),10),
         ("VALIGN",(0,0),(-1,-1),"MIDDLE"),("LINEBELOW",(0,0),(-1,0),2,C["grn"])]))
@@ -639,17 +580,13 @@ def sanitize_filename(name):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def init():
-    defs=dict(image=None,rois=[],freeze_rois=False,device_type="Viales lineales",
-              use_circular=False,global_diam=18,
-              assignment_df=None, blank_label=None,
-              df_signals=None,df_abs=None,df_merged=None,
+    defs=dict(image=None,rois=[],freeze_rois=False,device_type="Viales lineales",use_circular=False,global_diam=18,
+              assignment_df=None,blank_label=None,df_signals=None,df_abs=None,df_merged=None,
               cal_result=None,best_signal="G_norm",all_signals={},tri_groups={},tri_df=None,
-              df_results=None,annotated_img=None,
-              cal_fig=None,res_fig=None,
+              df_results=None,annotated_img=None,cal_fig=None,res_fig=None,
               cal_concs=None,cal_sigs=None,cal_unit="mg/L",cal_analyte="",cal_ch="",
-              cal_png=None,selected_signal="G_norm",
-              assignment_df_backup=None,rois_backup=None,
-              original_image=None, assignment_editor_data=None, ida_df=None)
+              cal_png=None,selected_signal="G_norm",assignment_df_backup=None,rois_backup=None,
+              original_image=None,assignment_editor_data=None,ida_df=None)
     for k,v in defs.items():
         if k not in st.session_state: st.session_state[k]=v
 init()
@@ -746,30 +683,27 @@ if pagina=="Análisis":
                     rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
                 elif is_plate:
                     diam=st.session_state.get("global_diam",60)
-                    n_rows=st.number_input("Filas",1,8,8,1,key="prows")
-                    n_cols=st.number_input("Columnas",1,12,12,1,key="pcols")
+                    n_rows=st.number_input("Filas",1,8,8,1,key="prows"); n_cols=st.number_input("Columnas",1,12,12,1,key="pcols")
                     auto_center = st.checkbox("Centrar grid automáticamente en la imagen", value=True, key="plate_auto_center")
                     if auto_center:
                         dx_val, dy_val = 141, 143
-                        grid_w = dx_val * (int(n_cols) - 1) + diam
-                        grid_h = dy_val * (int(n_rows) - 1) + diam
-                        x0_center = max(0, (W - grid_w) // 2)
-                        y0_center = max(0, (H - grid_h) // 2)
-                        st.info(f"Grid centrado automáticamente. Origen calculado: X={x0_center}, Y={y0_center}")
-                    else:
-                        x0_center, y0_center = 172, 196
-                    x0=st.slider("X",0,W-1,x0_center,key="px0")
-                    y0=st.slider("Y",0,H-1,y0_center,key="py0")
-                    dx=st.slider("dX",10,300,141,key="pdx")
-                    dy=st.slider("dY",10,300,143,key="pdy")
+                        grid_w = dx_val * (int(n_cols) - 1) + diam; grid_h = dy_val * (int(n_rows) - 1) + diam
+                        x0_center = max(0, (W - grid_w) // 2); y0_center = max(0, (H - grid_h) // 2)
+                        st.info(f"Grid centrado automáticamente. X={x0_center}, Y={y0_center}")
+                    else: x0_center, y0_center = 172, 196
+                    x0=st.slider("X",0,W-1,x0_center,key="px0"); y0=st.slider("Y",0,H-1,y0_center,key="py0")
+                    dx=st.slider("dX",10,300,141,key="pdx"); dy=st.slider("dY",10,300,143,key="pdy")
                     rois=gen_rois_plate(x0,y0,diam,diam,dx,dy,int(n_rows),int(n_cols))
                 elif is_tubes:
-                    radius=st.slider("Radio",5,50,15,key="t_radius"); h=st.slider("Altura",50,500,200,key="t_h"); ntubes=st.number_input("N tubos",1,12,6,1,key="t_ntubes")
-                    x0=st.slider("X centro",0,W-1,100,key="t_x0"); y0=st.slider("Y superior",0,H-1,100,key="t_y0"); dx=st.slider("dX",20,300,120,key="t_dx")
+                    radius=st.slider("Radio",5,50,15,key="t_radius"); h=st.slider("Altura",50,500,200,key="t_h")
+                    ntubes=st.number_input("N tubos",1,12,6,1,key="t_ntubes")
+                    x0=st.slider("X centro",0,W-1,100,key="t_x0"); y0=st.slider("Y superior",0,H-1,100,key="t_y0")
+                    dx=st.slider("dX",20,300,120,key="t_dx")
                     rois=gen_rois_tubes(x0,y0,radius,h,int(ntubes),dx)
                 else:
                     n=st.number_input("N",2,50,6,1,key="cn"); x0=st.slider("X",0,W-1,int(W*.05),key="cx0"); y0=st.slider("Y",0,H-1,int(H*.1),key="cy0")
-                    rw=st.slider("W",5,200,30,key="crw"); rh=st.slider("H",5,200,30,key="crh"); dx=st.slider("dX",0,300,int(W*.08),key="cdx"); dy=st.slider("dY",0,300,int(H*.08),key="cdy")
+                    rw=st.slider("W",5,200,30,key="crw"); rh=st.slider("H",5,200,30,key="crh")
+                    dx=st.slider("dX",0,300,int(W*.08),key="cdx"); dy=st.slider("dY",0,300,int(H*.08),key="cdy")
                     rois=gen_rois_linear(x0,y0,rw,rh,int(n),dx,dy)
                 st.session_state["rois"]=rois; st.session_state["rois_backup"]=[r.copy() for r in rois]
                 current_labels=[r["label"] for r in rois]
@@ -845,10 +779,7 @@ if pagina=="Análisis":
                                     "R_norm+G_norm","R_norm+B_norm","G_norm+B_norm","H","S","V","L","a","b_lab","ED","ED_norm"]
                     df_signals=compute_absorbances(df_signals,blank,signal_columns)
                     df_merged=df_signals.merge(adf[["ROI","Tipo","Nombre","Concentracion","Unidad","Analito","Factor_dil"]],on="ROI",how="left")
-                    
-                    st.session_state["df_signals"]=df_signals
-                    st.session_state["df_merged"]=df_merged
-                    
+                    st.session_state["df_signals"]=df_signals; st.session_state["df_merged"]=df_merged
                     std=df_merged[df_merged["Tipo"]=="Estándar"]
                     if len(std)>=2 and "Concentracion" in std.columns and len(std["Concentracion"].dropna().unique())>=2:
                         concs=std["Concentracion"].values.astype(float)
@@ -874,43 +805,57 @@ if pagina=="Análisis":
                                             ida_inv.update({"signal":col,"type":"Absorbancia invertida","m_orig":cal["m"],"m_final":cal_inv["m"],"inverted":True})
                                             ida_list.append(ida_inv); all_signals[col+"_inv"]={"cal":cal_inv,"sigs":sigs_inv,"lod":lod_inv,"loq":loq_inv,"sy_x":sy_x_inv,"inverted":True}
                         if ida_list:
-                            ida_norm=normalize_ida_params(ida_list)
-                            best=max(ida_norm,key=lambda x:x["IDA"])
+                            ida_norm=normalize_ida_params(ida_list); best=max(ida_norm,key=lambda x:x["IDA"])
                             best_signal_default=best["signal"]+("_inv" if best["inverted"] else "")
                             st.session_state.update({"ida_df":ida_norm,"all_signals":all_signals,"best_signal":best_signal_default,"cal_concs":concs})
                             if st.session_state.get("selected_signal") is None or st.session_state.get("selected_signal") not in all_signals:
                                 st.session_state["selected_signal"] = best_signal_default
-                            st.success(f"Barrido completado. Mejor señal por IDA: **{best_signal_default}** (IDA={best['IDA']:.1f})")
+                            st.success(f"Barrido completado. Mejor señal: **{best_signal_default}** (IDA={best['IDA']:.1f})")
                         else: st.warning("No se pudo calcular ninguna regresión.")
                     else:
-                        st.info("📊 **Barrido de señales completado** (sin calibración).")
+                        st.info("📊 Barrido de señales completado (sin calibración).")
                         st.session_state["ida_df"]=None; st.session_state["all_signals"]={}; st.session_state["cal_result"]=None
 
-        # ─── SELECCIÓN MANUAL DEL CANAL ────────────────────────────────────
+        # ─── SELECTOR DE CANAL (SIEMPRE VISIBLE SI HAY DATOS) ──────────────
+        df_signals_global = st.session_state.get("df_signals")
+        df_merged_global = st.session_state.get("df_merged")
         all_signals = st.session_state.get("all_signals", {})
+        
+        # Si hay datos extraídos pero no hay all_signals (ej. adición de estándar sin estándares)
+        if df_merged_global is not None and not all_signals:
+            # Crear un diccionario simple con las columnas A_ disponibles
+            abs_cols = [c for c in df_merged_global.columns if c.startswith("A_") and not c.startswith("A_inv_")]
+            if abs_cols:
+                temp_signals = {}
+                for col in abs_cols:
+                    ch_name = col.replace("A_", "")
+                    temp_signals[ch_name] = {"cal": None, "sigs": None, "lod": np.nan, "loq": np.nan, "sy_x": np.nan, "inverted": False}
+                all_signals = temp_signals
+        
         if all_signals:
             st.markdown("---")
-            st.markdown("### 🎯 Selección del canal para cuantificación")
+            st.markdown("### 🎯 Selección del canal")
             signal_options = list(all_signals.keys())
             default_idx = signal_options.index(st.session_state.get("selected_signal", signal_options[0])) if st.session_state.get("selected_signal") in signal_options else 0
-            sel_ch = st.selectbox("Canal seleccionado:", options=signal_options, index=default_idx,
-                format_func=lambda x: f"{x} (R²={all_signals[x]['cal']['r2']:.4f})" if all_signals[x]['cal'] else x, key="channel_selector")
+            sel_ch = st.selectbox("Canal:", options=signal_options, index=default_idx,
+                format_func=lambda x: f"{x}" if all_signals[x].get('cal') is None else f"{x} (R²={all_signals[x]['cal']['r2']:.4f})",
+                key="channel_selector")
             if sel_ch != st.session_state.get("selected_signal"):
                 st.session_state["selected_signal"] = sel_ch
-            info = all_signals[sel_ch]
-            st.session_state.update({"cal_result":info["cal"],"cal_sigs":info["sigs"],"cal_lod":info["lod"],"cal_loq":info["loq"],"cal_sy_x":info["sy_x"],"cal_inverted":info["inverted"]})
-            cal = info["cal"]
-            concs = st.session_state.get("cal_concs")
-            if concs is not None and cal is not None:
-                fig = plot_cal(concs, info["sigs"], cal, sel_ch, "Fenólicos totales", st.session_state.get("cal_unit","mg/L"), info["lod"], info["loq"],
-                               next((item["IDA"] for item in st.session_state.get("ida_df",[]) if item["signal"]+("_inv" if item["inverted"] else "")==sel_ch), None))
-                st.plotly_chart(fig, use_container_width=True)
-                slope_msg, slope_col = interpret_slope(cal["m"])
-                st.markdown(f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};padding:10px;">{slope_msg}</div>',unsafe_allow_html=True)
+            if all_signals[sel_ch].get("cal") is not None:
+                info = all_signals[sel_ch]
+                st.session_state.update({"cal_result":info["cal"],"cal_sigs":info["sigs"],"cal_lod":info["lod"],"cal_loq":info["loq"],"cal_sy_x":info["sy_x"],"cal_inverted":info["inverted"]})
+                cal = info["cal"]; concs = st.session_state.get("cal_concs")
+                if concs is not None and cal is not None:
+                    fig = plot_cal(concs, info["sigs"], cal, sel_ch, "Fenólicos totales", st.session_state.get("cal_unit","mg/L"), info["lod"], info["loq"],
+                                   next((item["IDA"] for item in st.session_state.get("ida_df",[]) if item["signal"]+("_inv" if item["inverted"] else "")==sel_ch), None))
+                    st.plotly_chart(fig, use_container_width=True)
+                    slope_msg, slope_col = interpret_slope(cal["m"])
+                    st.markdown(f'<div style="background:{PRIMARY};border-left:3px solid {slope_col};padding:10px;">{slope_msg}</div>',unsafe_allow_html=True)
 
         elif cal_method == "Ecuación manual":
             st.markdown("### Ingrese la ecuación de la curva")
-            st.info("💡 Use esta opción si ya conoce la pendiente (m) y el intercepto (b) de una curva previamente calculada.")
+            st.info("💡 Use esta opción si ya conoce la pendiente (m) y el intercepto (b).")
             col1, col2 = st.columns(2)
             with col1: manual_m = st.number_input("Pendiente (m)", value=0.0, step=0.0001, format="%.4f")
             with col2: manual_b = st.number_input("Intercepto (b)", value=0.0, step=0.0001, format="%.4f")
@@ -921,113 +866,71 @@ if pagina=="Análisis":
 
         elif cal_method == "Adición de estándar":
             st.markdown("### Adición de estándar")
-            
             with st.expander("📖 ¿Cómo usar la adición de estándar?", expanded=False):
                 st.markdown("""
                 **Opción A — Automática (desde la placa):**
-                1. En **Procesamiento**, asigne pocillos como **"Adición estándar"** con sus concentraciones añadidas.
-                2. Primero ejecute el **barrido de señales** en "Calibración externa" (necesario para extraer las absorbancias).
-                3. Regrese aquí y presione **"Calcular adición de estándar desde la placa"**.
-                
-                **Opción B — Manual:**
-                1. Ingrese manualmente los valores de concentración añadida y señal.
+                1. Asigne pocillos como **"Adición estándar"** con sus concentraciones añadidas.
+                2. Asigne al menos un pocillo como **"Blanco"**.
+                3. Ejecute el **barrido de señales** en "Calibración externa".
+                4. Regrese aquí y presione **"Calcular adición de estándar desde la placa"**.
+                **Opción B — Manual:** Ingrese los valores manualmente.
                 """)
-            
             adiciones_en_placa = adf[adf["Tipo"] == "Adición estándar"] if adf is not None else pd.DataFrame()
             df_merged = st.session_state.get("df_merged")
-            
             if not adiciones_en_placa.empty and df_merged is not None:
-                st.success(f"🔍 Se detectaron **{len(adiciones_en_placa)}** pocillos como 'Adición estándar' en la placa.")
-                
+                st.success(f"🔍 Se detectaron **{len(adiciones_en_placa)}** pocillos como 'Adición estándar'.")
+                abs_columns = [c for c in df_merged.columns if c.startswith("A_")]
+                st.markdown(f"**Columnas de absorbancia:** {', '.join(abs_columns) if abs_columns else '⚠️ NINGUNA'}")
                 if st.button("📊 Calcular adición de estándar desde la placa", key="btn_sa_auto"):
                     ch = st.session_state.get("selected_signal", "G_norm")
                     prefix = "A_inv_" if st.session_state.get("cal_inverted") else "A_"
                     ac = f"{prefix}{ch.replace('_inv', '')}"
-                    
                     if ac not in df_merged.columns:
-                        found = False
-                        for test_ch in ["G_norm", "R_norm", "B_norm", "R", "G", "B", "R+G", "R+B", "G+B"]:
-                            test_ac = f"A_{test_ch}"
-                            if test_ac in df_merged.columns:
-                                ac = test_ac; ch = test_ch; found = True
-                                st.info(f"Usando canal: **{ch}** (señal: {ac})")
-                                break
-                        if not found:
-                            st.error("❌ No se encontraron señales de absorbancia. Ejecute primero el barrido en 'Calibración externa (estándares)'.")
-                            st.stop()
-                    
+                        all_abs = [c for c in df_merged.columns if c.startswith("A_") and not c.startswith("A_inv_")]
+                        if all_abs: ac = all_abs[0]; ch = ac.replace("A_", "")
+                        else: st.error("❌ No hay columnas de absorbancia. Ejecute el barrido primero."); st.stop()
                     ad_data = df_merged[df_merged["Tipo"] == "Adición estándar"]
                     added = ad_data["Concentracion"].values.astype(float)
-                    sigs = ad_data[ac].values.astype(float)
-                    
-                    st.markdown("**Datos crudos:**")
-                    st.dataframe(pd.DataFrame({"ROI": ad_data["ROI"], "C añadida": added, f"Señal ({ac})": sigs}), use_container_width=True)
-                    
-                    mask = ~(np.isnan(added) | np.isnan(sigs))
-                    added_clean = added[mask]; sigs_clean = sigs[mask]
-                    
-                    if len(added_clean) < 2:
-                        st.error(f"❌ Solo {len(added_clean)} punto(s) con señal válida. Se necesitan al menos 2.")
+                    sigs = ad_data[ac].values.astype(float) if ac in df_merged.columns else np.full(len(added), np.nan)
+                    st.dataframe(pd.DataFrame({"ROI":ad_data["ROI"],"C añadida":added,f"Señal ({ac})":sigs}), use_container_width=True)
+                    valid = ~(np.isnan(added)|np.isnan(sigs))
+                    if valid.sum()<2: st.error(f"❌ Solo {valid.sum()} punto(s) válido(s). Se necesitan 2.")
                     else:
-                        cal_sa = fit_line(added_clean, sigs_clean)
-                        if cal_sa and abs(cal_sa["m"]) > 1e-12:
-                            xi = -cal_sa["b"] / cal_sa["m"]
-                            cal_sa["xi"] = xi; cal_sa["c_sample"] = abs(xi)
-                            st.session_state["cal_result"] = cal_sa
-                            st.session_state["cal_inverted"] = False
-                            
-                            st.success(f"✅ Concentración estimada: **{abs(xi):.4f}**")
-                            st.markdown(f"""
-                            **Ecuación:** Señal = {cal_sa['m']:.4f} × C_añadida + {cal_sa['b']:.4f}  
-                            **R²:** {cal_sa['r2']:.4f}  
-                            **Concentración original:** |−{cal_sa['b']:.4f} / {cal_sa['m']:.4f}| = **{abs(xi):.4f}**
-                            """)
-                            
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(x=added_clean, y=sigs_clean, mode="markers", marker=dict(color=ACCENT, size=10), name="Adiciones"))
-                            x_range = np.linspace(min(added_clean)-0.5, max(added_clean)+0.5, 100)
-                            fig.add_trace(go.Scatter(x=x_range, y=cal_sa["m"]*x_range+cal_sa["b"], mode="lines", line=dict(color=SUCCESS, width=2), name="Regresión"))
-                            fig.add_trace(go.Scatter(x=[xi], y=[0], mode="markers", marker=dict(color=DANGER, size=14, symbol="x-thin"), name=f"C muestra = {abs(xi):.4f}"))
-                            fig.add_hline(y=0, line_dash="dash", line_color=MUTED)
-                            fig.update_layout(template="plotly_dark", title=f"Adición de estándar — Canal: {ch}", xaxis_title="Concentración añadida", yaxis_title=f"Señal ({ac})")
-                            st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            st.error("❌ No se pudo calcular la regresión. Verifique que las concentraciones añadidas sean diferentes entre sí.")
+                        cal_sa=fit_line(added[valid],sigs[valid])
+                        if cal_sa and abs(cal_sa["m"])>1e-12:
+                            xi=-cal_sa["b"]/cal_sa["m"]; cal_sa["xi"]=xi; cal_sa["c_sample"]=abs(xi)
+                            st.session_state["cal_result"]=cal_sa; st.session_state["cal_inverted"]=False
+                            st.success(f"✅ Concentración: **{abs(xi):.4f}**")
+                            st.markdown(f"**Ecuación:** Señal = {cal_sa['m']:.4f}×C + {cal_sa['b']:.4f} | R²={cal_sa['r2']:.4f}")
+                            fig=go.Figure()
+                            fig.add_trace(go.Scatter(x=added[valid],y=sigs[valid],mode="markers",marker=dict(color=ACCENT,size=10),name="Adiciones"))
+                            xr=np.linspace(min(added[valid])-.5,max(added[valid])+.5,100)
+                            fig.add_trace(go.Scatter(x=xr,y=cal_sa["m"]*xr+cal_sa["b"],mode="lines",line=dict(color=SUCCESS,width=2),name="Regresión"))
+                            fig.add_trace(go.Scatter(x=[xi],y=[0],mode="markers",marker=dict(color=DANGER,size=14,symbol="x-thin"),name=f"C={abs(xi):.4f}"))
+                            fig.add_hline(y=0,line_dash="dash",line_color=MUTED)
+                            fig.update_layout(template="plotly_dark",title=f"Adición de estándar — Canal: {ch}")
+                            st.plotly_chart(fig,use_container_width=True)
+                        else: st.error("❌ No se pudo calcular la regresión.")
             else:
-                if adiciones_en_placa.empty:
-                    st.info("💡 Para usar la opción automática, asigne pocillos como **'Adición estándar'** en la pestaña **Procesamiento**.")
-                else:
-                    st.warning("⚠️ Ejecute primero el **barrido de señales** en 'Calibración externa (estándares)' para extraer las absorbancias.")
-                
-                st.markdown("---")
-                st.markdown("**O ingrese los datos manualmente:**")
-                
-                if "sa_data" not in st.session_state:
-                    st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(5)]
-                
-                n_points = st.number_input("Número de puntos", 2, 10, len(st.session_state["sa_data"]), key="sa_n")
-                if n_points != len(st.session_state["sa_data"]):
-                    st.session_state["sa_data"] = [{"C_añadida": 0.0, "Señal": 0.0} for _ in range(n_points)]
-                
+                if adiciones_en_placa.empty: st.info("💡 Asigne pocillos como 'Adición estándar' en Procesamiento.")
+                else: st.warning("⚠️ Ejecute primero el barrido de señales en 'Calibración externa'.")
+                st.markdown("---"); st.markdown("**O ingrese los datos manualmente:**")
+                if "sa_data" not in st.session_state: st.session_state["sa_data"]=[{"C_añadida":0.0,"Señal":0.0} for _ in range(5)]
+                n_points=st.number_input("Número de puntos",2,10,len(st.session_state["sa_data"]),key="sa_n")
+                if n_points!=len(st.session_state["sa_data"]): st.session_state["sa_data"]=[{"C_añadida":0.0,"Señal":0.0} for _ in range(n_points)]
                 for i in range(n_points):
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.session_state["sa_data"][i]["C_añadida"] = st.number_input(f"C añadida {i+1}", value=st.session_state["sa_data"][i]["C_añadida"], step=0.001, format="%.4f", key=f"sa_c_{i}")
-                    with col_b:
-                        st.session_state["sa_data"][i]["Señal"] = st.number_input(f"Señal {i+1}", value=st.session_state["sa_data"][i]["Señal"], step=0.0001, format="%.5f", key=f"sa_s_{i}")
-                
-                if st.button("Calcular por adición de estándar", key="btn_sa"):
-                    added = np.array([d["C_añadida"] for d in st.session_state["sa_data"]], dtype=float)
-                    sigs = np.array([d["Señal"] for d in st.session_state["sa_data"]], dtype=float)
-                    cal_manual = fit_line(added, sigs)
-                    if cal_manual and abs(cal_manual["m"]) > 1e-12:
-                        xi = -cal_manual["b"] / cal_manual["m"]
-                        cal_manual["xi"] = xi; cal_manual["c_sample"] = abs(xi)
-                        st.session_state["cal_result"] = cal_manual
-                        st.session_state["cal_inverted"] = False
-                        st.success(f"Concentración estimada: **{abs(xi):.4f}**")
-                    else:
-                        st.error("No se pudo calcular la regresión. Verifique los datos.")
+                    ca,cb=st.columns(2)
+                    with ca: st.session_state["sa_data"][i]["C_añadida"]=st.number_input(f"C añadida {i+1}",value=st.session_state["sa_data"][i]["C_añadida"],step=0.001,format="%.4f",key=f"sa_c_{i}")
+                    with cb: st.session_state["sa_data"][i]["Señal"]=st.number_input(f"Señal {i+1}",value=st.session_state["sa_data"][i]["Señal"],step=0.0001,format="%.5f",key=f"sa_s_{i}")
+                if st.button("Calcular por adición de estándar",key="btn_sa"):
+                    added=np.array([d["C_añadida"] for d in st.session_state["sa_data"]],dtype=float)
+                    sigs=np.array([d["Señal"] for d in st.session_state["sa_data"]],dtype=float)
+                    cal_manual=fit_line(added,sigs)
+                    if cal_manual and abs(cal_manual["m"])>1e-12:
+                        xi=-cal_manual["b"]/cal_manual["m"]; cal_manual["xi"]=xi; cal_manual["c_sample"]=abs(xi)
+                        st.session_state["cal_result"]=cal_manual; st.session_state["cal_inverted"]=False
+                        st.success(f"Concentración: **{abs(xi):.4f}**")
+                    else: st.error("No se pudo calcular la regresión.")
 
         # ─── TABLA DE DATOS EXTRAÍDOS ──────────────────────────────────────
         df_signals=st.session_state.get("df_signals")
@@ -1041,11 +944,9 @@ if pagina=="Análisis":
         ida_df=st.session_state.get("ida_df")
         if ida_df is not None:
             st.markdown("### Comparación gráfica de R²")
-            fig_r2 = plot_r2_bars(ida_df)
-            st.plotly_chart(fig_r2, use_container_width=True)
+            st.plotly_chart(plot_r2_bars(ida_df), use_container_width=True)
             st.markdown("### Tabla comparativa")
-            display_cols=["signal","type","m_orig","m_final","r2","sy_x","lod","loq","IDA","inverted"]
-            st.dataframe(pd.DataFrame(ida_df)[display_cols].round(4), use_container_width=True)
+            st.dataframe(pd.DataFrame(ida_df)[["signal","type","m_orig","m_final","r2","sy_x","lod","loq","IDA","inverted"]].round(4), use_container_width=True)
 
         # ─── CUANTIFICACIÓN ───────────────────────────────────────────────
         cal = st.session_state.get("cal_result")
@@ -1053,27 +954,24 @@ if pagina=="Análisis":
             st.markdown("---"); slbl("Cuantificación")
             if st.button("Calcular concentraciones", key="btn_q"):
                 dm = st.session_state.get("df_merged")
-                if dm is None:
-                    st.error("Ejecute primero la extracción de señales o cargue los datos.")
+                if dm is None: st.error("Ejecute primero la extracción de señales.")
                 else:
-                    m, b = cal["m"], cal["b"]
-                    samples = dm[dm["Tipo"] == "Muestra"].copy(); res = []
-                    for _, row in samples.iterrows():
-                        ch = st.session_state.get("selected_signal", "G_norm")
-                        prefix = "A_inv_" if st.session_state.get("cal_inverted") else "A_"
-                        ac = f"{prefix}{ch.replace('_inv', '')}"
-                        a = row.get(ac, float("nan")); dil = float(row.get("Factor_dil", 1) or 1)
-                        c_r = (a - b) / abs(m) if not math.isnan(a) and abs(m) > 1e-12 else float("nan")
-                        c_c = c_r * dil if not math.isnan(c_r) else float("nan")
-                        res.append({"Muestra": str(row.get("Nombre", "")) or row["ROI"], "ROI": row["ROI"], "Señal": ch,
-                                    "A_digital": round(a, 4) if not math.isnan(a) else None,
-                                    "Conc_calc": round(c_r, 3) if not math.isnan(c_r) else None,
-                                    "Factor_dil": dil, "Conc_corregida": round(c_c, 3) if not math.isnan(c_c) else None,
-                                    "Unidad": str(row.get("Unidad", "mg/L")), "Analito": str(row.get("Analito", ""))})
-                    df_res = pd.DataFrame(res); st.session_state["df_results"] = df_res
-                    st.dataframe(df_res, use_container_width=True, hide_index=True)
-                    csv_res = df_res.to_csv(index=False).encode('utf-8')
-                    st.download_button("⬇ Descargar resultados CSV", csv_res, "elementa_resultados.csv", "text/csv", key="dl_res")
+                    m,b=cal["m"],cal["b"]; samples=dm[dm["Tipo"]=="Muestra"].copy(); res=[]
+                    for _,row in samples.iterrows():
+                        ch=st.session_state.get("selected_signal","G_norm")
+                        prefix="A_inv_" if st.session_state.get("cal_inverted") else "A_"
+                        ac=f"{prefix}{ch.replace('_inv','')}"
+                        a=row.get(ac,float("nan")); dil=float(row.get("Factor_dil",1) or 1)
+                        c_r=(a-b)/abs(m) if not math.isnan(a) and abs(m)>1e-12 else float("nan")
+                        c_c=c_r*dil if not math.isnan(c_r) else float("nan")
+                        res.append({"Muestra":str(row.get("Nombre","")) or row["ROI"],"ROI":row["ROI"],"Señal":ch,
+                                    "A_digital":round(a,4) if not math.isnan(a) else None,
+                                    "Conc_calc":round(c_r,3) if not math.isnan(c_r) else None,
+                                    "Factor_dil":dil,"Conc_corregida":round(c_c,3) if not math.isnan(c_c) else None,
+                                    "Unidad":str(row.get("Unidad","mg/L")),"Analito":str(row.get("Analito",""))})
+                    df_res=pd.DataFrame(res); st.session_state["df_results"]=df_res
+                    st.dataframe(df_res,use_container_width=True,hide_index=True)
+                    st.download_button("⬇ Descargar resultados CSV",df_res.to_csv(index=False).encode(),"elementa_resultados.csv","text/csv",key="dl_res")
         footer()
 
     # ── REPORTE ────────────────────────────────────────────────────────────
@@ -1087,11 +985,11 @@ if pagina=="Análisis":
         st.markdown("---"); slbl("Exportar PDF")
         if st.button("Generar PDF",key="btn_pdf"):
             cal=st.session_state.get("cal_result"); ida_val=st.session_state.get("cal_ida"); inverted=st.session_state.get("cal_inverted",False)
+            cal_png=None
             if cal:
                 concs=st.session_state.get("cal_concs"); sigs=st.session_state.get("cal_sigs"); ch=st.session_state.get("selected_signal","")
                 unit=st.session_state.get("cal_unit","mg/L"); lod=st.session_state.get("cal_lod",np.nan); loq=st.session_state.get("cal_loq",np.nan)
-                cal_png=cal_to_png(cal,concs,sigs,ch,"Fenólicos totales",unit,lod,loq) if concs is not None and sigs is not None else None
-            else: cal_png=None
+                if concs is not None and sigs is not None: cal_png=cal_to_png(cal,concs,sigs,ch,"Fenólicos totales",unit,lod,loq)
             try:
                 pdf_b=gen_pdf(analyte="Fenólicos totales",method="Folin-Ciocalteu (760 nm)",
                               df_signals=pd.DataFrame(st.session_state.get("ida_df",[])),df_results=df_res,cal=cal,
@@ -1112,10 +1010,9 @@ if pagina=="Análisis":
 
 elif pagina=="Tutorial":
     st.markdown("<h1>Guía de inicio rápido</h1>",unsafe_allow_html=True)
-    steps=[("Paso 1","Prepare estándares y blanco."),("Paso 2","Capture imagen PNG con iluminación controlada."),
-           ("Paso 3","Defina ROIs sobre pocillos/tubos."),("Paso 4","Asigne tipos y concentraciones."),
-           ("Paso 5","Seleccione el canal deseado o use el recomendado por IDA."),("Paso 6","Cuantifique y exporte el PDF.")]
-    for t,c in steps:
+    for t,c in [("Paso 1","Prepare estándares y blanco."),("Paso 2","Capture imagen PNG con iluminación controlada."),
+                ("Paso 3","Defina ROIs sobre pocillos/tubos."),("Paso 4","Asigne tipos y concentraciones."),
+                ("Paso 5","Seleccione el canal deseado o use el recomendado por IDA."),("Paso 6","Cuantifique y exporte el PDF.")]:
         with st.expander(t,expanded=False): st.markdown(c)
     footer()
 
@@ -1130,12 +1027,8 @@ elif pagina=="Fundamentos":
     st.markdown("<h1>Fundamentos</h1>",unsafe_allow_html=True)
     st.markdown("### Absorbancia digital")
     st.latex(r"A = \log_{10}\left(\frac{I_{blanco}}{I_{muestra}}\right)")
-    st.markdown("### Barrido de señales")
-    st.markdown("RGB, HSV, CIELAB, combinaciones y distancia euclidiana.")
-    st.markdown("### Índice de Desempeño Analítico (IDA)")
+    st.markdown("### IDA")
     st.latex(r"\text{IDA} = 0.30 R^2 + 0.25(1-S_{y/x}) + 0.15|m| + 0.10(1-\text{LOD}) + 0.10(1-\text{LOQ}) + 0.10(1-\text{CV})")
-    st.markdown("### Pendientes negativas")
-    st.markdown("Se interpretan sin error; absorbancia invertida disponible.")
     footer()
 
 elif pagina=="Normativa":
