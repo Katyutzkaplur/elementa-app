@@ -1064,18 +1064,18 @@ if pagina=="Análisis":
                             except Exception as e:
                                 st.warning(f"No se pudo generar la imagen PNG para el PDF: {e}")
                             
-                            # Mostrar resultados numéricos (CORREGIDO)
-                            st.success(f"✅ **Concentración estimada de la muestra:** **{abs(xi):.4f}**")
-                            st.markdown(f"""
-                            **Resumen analítico:**
-                            - **Ecuación:** Señal = {cal_sa['m']:.4f} × C_añadida + {cal_sa['b']:.4f}
-                            - **R²:** {cal_sa['r2']:.4f}
-                            - **Pendiente (m):** {cal_sa['m']:.4f}
-                            - **Intercepto (b):** {cal_sa['b']:.4f}
-                            - **Concentración original:** |−{cal_sa['b']:.4f} / {cal_sa['m']:.4f}| = **{abs(xi):.4f}**
-                            - **LOD (si aplica):** {lod:.4f if not np.isnan(lod) else "N/D"}
-                            - **LOQ (si aplica):** {loq:.4f if not np.isnan(loq) else "N/D"}
-                            """)
+                           # Mostrar resultados numéricos (CORREGIDO - SIN ESPACIOS)
+                        st.success(f"✅ **Concentración estimada de la muestra:** **{abs(xi):.4f}**")
+                        st.markdown(f"""
+                        **Resumen analítico:**
+                        - **Ecuación:** Señal = {cal_sa['m']:.4f} × C_añadida + {cal_sa['b']:.4f}
+                        - **R²:** {cal_sa['r2']:.4f}
+                        - **Pendiente (m):** {cal_sa['m']:.4f}
+                        - **Intercepto (b):** {cal_sa['b']:.4f}
+                        - **Concentración original:** |−{cal_sa['b']:.4f} / {cal_sa['m']:.4f}| = **{abs(xi):.4f}**
+                        - **LOD (si aplica):** {lod:.4f if not np.isnan(lod) else "N/D"}
+                        - **LOQ (si aplica):** {loq:.4f if not np.isnan(loq) else "N/D"}
+                        """)
                             
                             # Guardar en session_state para el reporte
                             st.session_state["sa_results"] = {
