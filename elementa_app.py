@@ -712,7 +712,7 @@ if pagina=="Análisis":
                     rois=gen_rois_plate(x0,y0,diam,diam,dx,dy,int(n_rows),int(n_cols))
                 elif is_tubes:
                     radius=st.slider("Radio",5,50,15,key="t_radius"); h=st.slider("Altura",50,500,200,key="t_h")
-                    ntubes=st.number_input("N tubos",1,12,6,1,key="t_ntubes")
+                    ntubes=st.number_input("N tubos",1,18,6,1,key="t_ntubes")
                     x0=st.slider("X centro",0,W-1,100,key="t_x0"); y0=st.slider("Y superior",0,H-1,100,key="t_y0")
                     dx=st.slider("dX",20,300,120,key="t_dx")
                     rois=gen_rois_tubes(x0,y0,radius,h,int(ntubes),dx)
