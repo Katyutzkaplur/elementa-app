@@ -714,7 +714,7 @@ if pagina=="Análisis":
                     radius=st.slider("Radio",5,50,15,key="t_radius"); h=st.slider("Altura",50,500,200,key="t_h")
                     ntubes=st.number_input("N tubos",1,18,6,1,key="t_ntubes")
                     x0=st.slider("X centro",0,W-1,100,key="t_x0"); y0=st.slider("Y superior",0,H-1,100,key="t_y0")
-                    dx=st.slider("dX",20,300,120,key="t_dx")
+                    dx=st.slider("dX",20,400,120,key="t_dx")
                     rois=gen_rois_tubes(x0,y0,radius,h,int(ntubes),dx)
                 else:
                     n=st.number_input("N",2,50,6,1,key="cn"); x0=st.slider("X",0,W-1,int(W*.05),key="cx0"); y0=st.slider("Y",0,H-1,int(H*.1),key="cy0")
