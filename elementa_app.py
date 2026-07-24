@@ -1064,7 +1064,7 @@ if pagina=="Análisis":
                             except Exception as e:
                                 st.warning(f"No se pudo generar la imagen PNG para el PDF: {e}")
                             
-                            # Mostrar resultados numéricos
+                            # Mostrar resultados numéricos (CORREGIDO)
                             st.success(f"✅ **Concentración estimada de la muestra:** **{abs(xi):.4f}**")
                             st.markdown(f"""
                             **Resumen analítico:**
